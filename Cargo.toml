@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.104"
 notify = "8.2.1"
 notify-debouncer-mini = "0.7.0"
 serde = { version = "1.0.229", features = ["derive"] }

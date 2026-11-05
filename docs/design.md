@@ -125,7 +125,7 @@ default, and the next terminal says what happened.
   Backups are never pruned automatically.
 - Single binary with subcommands: `watch` (service), `prompt` (hook), `once` (one pass,
   for testing). Installed with `cargo install --path .` to `~/.cargo/bin`.
-- Crates: `notify` (+ debouncer), `similar` (diff), `serde_json`. Nothing else unless needed.
+- Crates: `notify` (+ debouncer), `similar` (diff), `serde_json`, `anyhow` (errors; user request 2026-11-05). Nothing else unless needed.
 - Service and hook both touch the state files: every write is atomic, and both take
   an exclusive lock on `~/.local/state/bashrc-sort/lock` while reading-modifying-writing.
 - A missing target file in `~/.bashrc.d/` is created.

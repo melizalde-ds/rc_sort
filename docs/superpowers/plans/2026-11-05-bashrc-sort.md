@@ -6,7 +6,7 @@
 
 **Architecture:** One crate, library + thin binary. Pure pipeline `diff → blocks → classify` with no I/O, then `sort` does the file work under a lock. Three subcommands: `watch` (service), `prompt` (shell hook), `once` (one pass). All paths come from a `Paths` struct so tests run against a temp `HOME` and temp skel dir.
 
-**Tech Stack:** Rust (cargo 1.99, edition 2024), `notify` + `notify-debouncer-mini`, `similar`, `serde` + `serde_json`. std `File::lock` for locking. No other crates.
+**Tech Stack:** Rust (cargo 1.99, edition 2024), `notify` + `notify-debouncer-mini`, `similar`, `serde` + `serde_json`, `anyhow` for errors (with `.context()` naming the file). std `File::lock` for locking. No other crates.
 
 **Spec:** `docs/design.md`
 
@@ -202,15 +202,15 @@ Plus `tools_named_finds_words`: `tools_named(". \"$HOME/.cargo/env\"\nexport PNP
       pub fn state_dir(&self) -> PathBuf;  // home/.local/state/bashrc-sort
   }
   pub const WATCHED: [&str; 2] = [".bashrc", ".bash_profile"];
-  pub fn lock(p: &Paths) -> io::Result<File>;              // creates state dir; File::lock(); unlocks on drop
-  pub fn atomic_write(path: &Path, content: &str) -> io::Result<()>; // resolve symlinks first (so a dotfiles symlink survives), then <path>.bashrc-sort.tmp + rename, keeps file mode
-  pub fn backup(p: &Paths, file: &str, content: &str) -> io::Result<()>; // backups/<file>.<unix_secs>[.<n>]
+  pub fn lock(p: &Paths) -> anyhow::Result<File>;              // creates state dir; File::lock(); unlocks on drop
+  pub fn atomic_write(path: &Path, content: &str) -> anyhow::Result<()>; // resolve symlinks first (so a dotfiles symlink survives), then <path>.bashrc-sort.tmp + rename, keeps file mode
+  pub fn backup(p: &Paths, file: &str, content: &str) -> anyhow::Result<()>; // backups/<file>.<unix_secs>[.<n>]
   pub fn hash(text: &str) -> u64;   // FNV-1a 64 over lines with trailing whitespace trimmed, joined by '\n', outer blank lines stripped
   #[derive(Serialize, Deserialize, Clone)]
   pub struct Pending { pub hash: u64, pub file: String, pub text: String, pub note: String } // note: "" or why it's unsure
   #[derive(Default)]
   pub struct State { pub pending: Vec<Pending>, pub kept: HashSet<u64>, pub messages: Vec<String> }
-  impl State { pub fn load(p: &Paths) -> io::Result<State>; pub fn save(&self, p: &Paths) -> io::Result<()>; }
+  impl State { pub fn load(p: &Paths) -> anyhow::Result<State>; pub fn save(&self, p: &Paths) -> anyhow::Result<()>; }
   ```
   Files: `pending.json` (JSON array), `kept` (one decimal hash per line), `messages` (one message per line). Missing files = empty. Caller holds the lock around load→save.
 
@@ -242,10 +242,10 @@ Plus `tools_named_finds_words`: `tools_named(". \"$HOME/.cargo/env\"\nexport PNP
 - Consumes: `added_lines`, `split_blocks`, `classify`, `Category`, everything in `state`.
 - Produces:
   ```rust
-  pub fn run_once(p: &Paths) -> io::Result<()>;   // takes the lock itself
+  pub fn run_once(p: &Paths) -> anyhow::Result<()>;   // takes the lock itself
   /// Re-reads `file`, finds the block whose hash == `h`, moves it to `cat`.
   /// Ok(false) if the block is no longer there. Caller holds the lock.
-  pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Category) -> io::Result<bool>;
+  pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Category) -> anyhow::Result<bool>;
   pub fn block_name(b: &Block) -> String; // first line if comment: text after '#', trimmed; else first line, max 40 chars
   ```
 
@@ -280,7 +280,7 @@ Plus `tools_named_finds_words`: `tools_named(". \"$HOME/.cargo/env\"\nexport PNP
 
 **Interfaces:**
 - Consumes: `State`, `lock`, `move_block`, `Category::from_key`.
-- Produces: `pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> io::Result<()>`
+- Produces: `pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> anyhow::Result<()>`
 
 - [ ] **Step 1: Write failing tests** (in `tests/e2e.rs`, input via `Cursor`, output `Vec<u8>`):
   - `prints_messages_once`: 1 message → output contains it; second call prints nothing.
@@ -320,7 +320,7 @@ fi
 
 **Interfaces:**
 - Consumes: `run_once`, `WATCHED`.
-- Produces: `pub fn run_watch(p: &Paths) -> io::Result<()>` (returns only on watcher error).
+- Produces: `pub fn run_watch(p: &Paths) -> anyhow::Result<()>` (returns only on watcher error).
 
 - [ ] **Step 1: Implement `run_watch`.** `run_once` at startup. `notify_debouncer_mini::new_debouncer(Duration::from_secs(1), tx)`, watch `p.home` `NonRecursive`. On each debounced batch: if any event path's `file_name()` is in `WATCHED`, call `run_once`. Errors from `run_once` → `eprintln!` and continue (journal shows them); never exit on a pass error. Loop guard is built in: after a pass the file has no new blocks, and pending/kept are skipped by hash.
 
