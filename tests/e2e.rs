@@ -153,3 +153,83 @@ fn real_edited_bash_profile_with_installer_append() {
     assert!(read(&p, ".bashrc.d/tools.sh").contains(BUN.trim_end()));
     assert!(State::load(&p).unwrap().pending.is_empty());
 }
+
+// ---- prompt ----
+
+use bashrc_sort::prompt::run_prompt;
+use std::io::Cursor;
+
+fn prompt(p: &Paths, input: &str) -> String {
+    let mut out = Vec::new();
+    run_prompt(p, &mut Cursor::new(input.as_bytes()), &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+/// HOME with the `ssh-agent` line appended to .bashrc and recorded as pending.
+fn with_pending(name: &str) -> Paths {
+    let p = setup(name);
+    append(&p, ".bashrc", "ssh-agent -s > /dev/null\n");
+    run_once(&p).unwrap();
+    assert_eq!(State::load(&p).unwrap().pending.len(), 1);
+    p
+}
+
+#[test]
+fn prompt_prints_messages_once() {
+    let p = setup("pmsg");
+    append(&p, ".bashrc", "alias zz=\"ls\"\n");
+    run_once(&p).unwrap();
+    assert!(prompt(&p, "").contains("bashrc-sort: moved alias zz=\"ls\" block from ~/.bashrc to aliases.sh"));
+    assert_eq!(prompt(&p, ""), "");
+}
+
+#[test]
+fn prompt_answer_t_moves_pending() {
+    let p = with_pending("pt");
+    let out = prompt(&p, "t\n");
+    assert!(out.contains("[t]ools [e]xports [a]liases [f]unctions [k]eep in place"));
+    assert!(out.contains("bashrc-sort: moved ssh-agent -s > /dev/null block from ~/.bashrc to tools.sh"));
+    assert!(read(&p, ".bashrc.d/tools.sh").contains("ssh-agent -s > /dev/null"));
+    assert_eq!(read(&p, ".bashrc"), skel(".bashrc"));
+    let s = State::load(&p).unwrap();
+    assert!(s.pending.is_empty());
+    assert!(s.messages.is_empty(), "printed right away, not queued");
+}
+
+#[test]
+fn prompt_answer_k_keeps() {
+    let p = with_pending("pk");
+    let before = read(&p, ".bashrc");
+    prompt(&p, "k\n");
+    let s = State::load(&p).unwrap();
+    assert!(s.kept.contains(&hash("ssh-agent -s > /dev/null")));
+    assert!(s.pending.is_empty());
+    assert_eq!(read(&p, ".bashrc"), before);
+    run_once(&p).unwrap();
+    assert!(State::load(&p).unwrap().pending.is_empty(), "never asked again");
+}
+
+#[test]
+fn prompt_empty_answer_stays_pending() {
+    let p = with_pending("pempty");
+    prompt(&p, "\n");
+    assert_eq!(State::load(&p).unwrap().pending.len(), 1);
+    prompt(&p, ""); // EOF, like Ctrl-D / Ctrl-C
+    assert_eq!(State::load(&p).unwrap().pending.len(), 1);
+}
+
+#[test]
+fn prompt_stale_pending_is_dropped() {
+    let p = with_pending("pstale");
+    fs::write(p.home.join(".bashrc"), skel(".bashrc")).unwrap();
+    prompt(&p, "t\n");
+    assert!(State::load(&p).unwrap().pending.is_empty());
+    assert_eq!(read(&p, ".bashrc.d/tools.sh"), "# tools\n");
+}
+
+#[test]
+fn prompt_nothing_pending_is_silent() {
+    let p = setup("pnone");
+    assert_eq!(prompt(&p, ""), "");
+    assert!(!p.state_dir().exists(), "fast path must not even create state");
+}

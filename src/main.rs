@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use bashrc_sort::prompt::run_prompt;
 use bashrc_sort::sort::run_once;
 use bashrc_sort::state::Paths;
 use std::path::PathBuf;
@@ -8,6 +9,7 @@ fn main() -> Result<()> {
     let p = Paths { home: PathBuf::from(home), skel: PathBuf::from("/etc/skel") };
     match std::env::args().nth(1).as_deref() {
         Some("once") => run_once(&p),
+        Some("prompt") => run_prompt(&p, &mut std::io::stdin().lock(), &mut std::io::stdout()),
         _ => {
             eprintln!("usage: bashrc-sort watch|prompt|once");
             std::process::exit(2);
