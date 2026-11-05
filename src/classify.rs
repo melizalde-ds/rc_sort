@@ -66,11 +66,10 @@ pub fn classify(b: &Block) -> Option<Category> {
 pub fn tools_named(text: &str) -> Vec<&'static str> {
     let mut found = Vec::new();
     for word in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
-        if let Some(&tool) = KNOWN_TOOLS.iter().find(|&&k| k == word) {
-            if !found.contains(&tool) {
+        if let Some(&tool) = KNOWN_TOOLS.iter().find(|&&k| k == word)
+            && !found.contains(&tool) {
                 found.push(tool);
             }
-        }
     }
     found
 }

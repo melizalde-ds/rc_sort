@@ -14,10 +14,10 @@ pub fn added_lines(default: &str, current: &str) -> Vec<usize> {
             DiffOp::Insert { new_index, new_len, .. } => added.extend(new_index..new_index + new_len),
             DiffOp::Replace { old_index, old_len, new_index, new_len } => {
                 let olds = &old[old_index..old_index + old_len];
-                for i in new_index..new_index + new_len {
+                for (i, line) in new.iter().enumerate().skip(new_index).take(new_len) {
                     let edited = olds
                         .iter()
-                        .any(|o| TextDiff::from_chars(*o, new[i]).ratio() >= CHANGED_RATIO);
+                        .any(|o| TextDiff::from_chars(*o, *line).ratio() >= CHANGED_RATIO);
                     if !edited {
                         added.push(i);
                     }
