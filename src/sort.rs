@@ -11,6 +11,9 @@ pub fn run_once(p: &Paths) -> Result<()> {
     let mut state = State::load(p)?;
     for file in WATCHED {
         let Some((current, blocks)) = scan(p, file)? else { continue };
+        // Blocks the user edited or removed by hand are no longer worth asking about.
+        let live: HashSet<u64> = blocks.iter().map(|b| hash(&b.text)).collect();
+        state.pending.retain(|x| x.file != file || live.contains(&x.hash));
         let mut done: Vec<&Block> = Vec::new();
         for b in &blocks {
             let h = hash(&b.text);

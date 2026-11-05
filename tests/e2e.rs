@@ -260,3 +260,11 @@ fn watch_sorts_on_change_and_on_startup() {
     assert!(wait_for(".bashrc.d/aliases.sh", "alias late=\"ls\""), "change after rename");
     assert_eq!(read(&p, ".bashrc"), skel(".bashrc"));
 }
+
+#[test]
+fn pending_pruned_when_block_removed_by_hand() {
+    let p = with_pending("prune");
+    fs::write(p.home.join(".bashrc"), skel(".bashrc")).unwrap();
+    run_once(&p).unwrap();
+    assert!(State::load(&p).unwrap().pending.is_empty());
+}
