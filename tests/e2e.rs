@@ -233,3 +233,30 @@ fn prompt_nothing_pending_is_silent() {
     assert_eq!(prompt(&p, ""), "");
     assert!(!p.state_dir().exists(), "fast path must not even create state");
 }
+
+// ---- watch ----
+
+#[test]
+fn watch_sorts_on_change_and_on_startup() {
+    let p = setup("watch");
+    // Edit made while the service was down: sorted by the startup pass.
+    append(&p, ".bash_profile", "\nalias early=\"ls\"\n");
+    let p2 = p.clone();
+    std::thread::spawn(move || bashrc_sort::watch::run_watch(&p2));
+    let wait_for = |rel: &str, needle: &str| {
+        for _ in 0..50 {
+            if fs::read_to_string(p.home.join(rel)).is_ok_and(|s| s.contains(needle)) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        false
+    };
+    assert!(wait_for(".bashrc.d/aliases.sh", "alias early=\"ls\""), "startup pass");
+    // Installers often replace the file via rename; do the same.
+    let tmp = p.home.join(".bashrc.tmp");
+    fs::write(&tmp, format!("{}alias late=\"ls\"\n", skel(".bashrc"))).unwrap();
+    fs::rename(&tmp, p.home.join(".bashrc")).unwrap();
+    assert!(wait_for(".bashrc.d/aliases.sh", "alias late=\"ls\""), "change after rename");
+    assert_eq!(read(&p, ".bashrc"), skel(".bashrc"));
+}

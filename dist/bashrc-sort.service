@@ -1,0 +1,10 @@
+[Unit]
+Description=Keep ~/.bashrc and ~/.bash_profile sorted into ~/.bashrc.d
+
+[Service]
+ExecStart=%h/.cargo/bin/bashrc-sort watch
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
