@@ -52,7 +52,8 @@ default, and the next terminal says what happened.
 ### Diff against the default
 - Baseline for each file: `/etc/skel/.bashrc` and `/etc/skel/.bash_profile`, read at runtime.
 - Only **added** lines are handled. Changed or deleted default lines (including the
-  current comment differences) are left alone and never reported.
+  current comment differences) are left alone and never reported. Default lines the user
+  moved elsewhere in the file are not additions either.
   Builder decides the diff method; a line-based LCS diff is enough.
 
 ### Blocks
@@ -64,7 +65,7 @@ default, and the next terminal says what happened.
 ### Classification (first match wins)
 1. Defines a function (`name() {` or `function name`) → `functions.sh`
 2. Every non-comment line is an `alias` → `aliases.sh`
-3. Changes PATH, runs `eval "$(…)"`, sources a file (`.` / `source`), or names a known
+3. Changes PATH, runs a command (`$(…)` or backticks, e.g. `eval "$(…)"`), sources a file (`.` / `source`), or names a known
    tool (cargo, rustup, fnm, nvm, bun, pnpm, deno, pyenv, conda, sdkman, zoxide,
    starship, direnv) → `tools.sh`
 4. Every non-comment line is `export VAR=…` (no PATH) → `exports.sh`
@@ -78,7 +79,7 @@ default, and the next terminal says what happened.
 2. If the identical block (ignoring surrounding whitespace) is already in the target
    file, do not append it again (this is how duplicates died).
    Otherwise append it to the target, preceded by a blank line.
-   If it is not identical but names a known tool that the target already names
+   If a tools block is not identical but names a known tool that tools.sh already names
    (e.g. the bun installer's block vs the user's hand-edited `# bun` block), treat it
    as **unsure** instead (decided 2026-11-05): leave it and ask, so neither a silent
    duplicate nor a silent drop happens.
@@ -91,6 +92,7 @@ default, and the next terminal says what happened.
 - Next interactive terminal shows the block and asks:
   `[t]ools [e]xports [a]liases [f]unctions [k]eep in place`.
   t/e/a/f → move it as above. k → remember the hash; never ask about it again.
+  A block that is half of an if/loop is never moved; it is kept and the user is told.
 - Empty input / Ctrl-C → stays pending; asked again next terminal.
 
 ### Shell hook

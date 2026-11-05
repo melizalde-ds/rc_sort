@@ -13,7 +13,6 @@ name = "bashrc-sort"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "notify",
  "notify-debouncer-mini",
  "serde",
  "serde_json",

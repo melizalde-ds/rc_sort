@@ -25,7 +25,7 @@ pub fn run_once(p: &Paths) -> Result<()> {
                 continue;
             };
             let target = read_opt(&p.rc_dir().join(cat.file_name()))?.unwrap_or_default();
-            if !contains_block(&target, &b.text) {
+            if cat == Category::Tools && !contains_block(&target, &b.text) {
                 let ours = tools_named(&target);
                 if let Some(tool) = tools_named(&b.text).into_iter().find(|t| ours.contains(t)) {
                     let note = format!("{} already has a {tool} block", cat.file_name());
@@ -40,21 +40,34 @@ pub fn run_once(p: &Paths) -> Result<()> {
             done.push(b);
         }
         if !done.is_empty() {
-            atomic_write(&p.home.join(file), &without(&current, &done))?;
+            rewrite(p, file, &current, &done)?;
         }
     }
     state.save(p)
 }
 
 /// Re-reads `file`, finds the block whose hash == `h`, moves it to `cat` (no duplicate-tool check:
-/// the user decided). Ok(false) if the block is no longer there. Caller holds the lock.
+/// the user decided). Ok(false) if the block is no longer there, or is half of an if/loop
+/// (moving it would break both files). Caller holds the lock.
 pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Category) -> Result<bool> {
     let Some((current, blocks)) = scan(p, file)? else { return Ok(false) };
-    let Some(b) = blocks.iter().find(|b| hash(&b.text) == h) else { return Ok(false) };
+    let Some(b) = blocks.iter().find(|b| b.balanced && hash(&b.text) == h) else { return Ok(false) };
     backup(p, file, &current)?;
     state.messages.push(place(p, file, b, cat)?);
-    atomic_write(&p.home.join(file), &without(&current, &[b]))?;
+    rewrite(p, file, &current, &[b])?;
     Ok(true)
+}
+
+/// Writes `file` without `blocks`, unless it changed since `current` was read: an installer
+/// appended mid-pass, and writing would drop its lines. Its write queues another pass, and
+/// that pass removes the blocks already copied as duplicates.
+fn rewrite(p: &Paths, file: &str, current: &str, blocks: &[&Block]) -> Result<()> {
+    let path = p.home.join(file);
+    if read_opt(&path)?.as_deref() != Some(current) {
+        eprintln!("bashrc-sort: ~/{file} changed during the pass, leaving it for the next one");
+        return Ok(());
+    }
+    atomic_write(&path, &without(current, blocks))
 }
 
 /// Short name for messages: the leading comment's text, else the first line (max 40 chars).
@@ -138,4 +151,23 @@ fn without(current: &str, blocks: &[&Block]) -> String {
 
 fn pending(file: &str, b: &Block, note: String) -> Pending {
     Pending { hash: hash(&b.text), file: file.to_string(), text: b.text.clone(), note }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn rewrite_skips_file_changed_since_read() {
+        let home = std::env::temp_dir().join(format!("bashrc-sort-test-{}-rewrite", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        fs::create_dir_all(&home).unwrap();
+        let p = Paths { home, skel: "/nonexistent".into() };
+        // The pass read "a\n"; an installer appended "b" before the rewrite.
+        fs::write(p.home.join(".bashrc"), "a\nb\n").unwrap();
+        let block = Block { lines: vec![0], text: "a".into(), balanced: true };
+        rewrite(&p, ".bashrc", "a\n", &[&block]).unwrap();
+        assert_eq!(fs::read_to_string(p.home.join(".bashrc")).unwrap(), "a\nb\n");
+    }
 }

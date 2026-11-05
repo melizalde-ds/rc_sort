@@ -268,3 +268,45 @@ fn pending_pruned_when_block_removed_by_hand() {
     run_once(&p).unwrap();
     assert!(State::load(&p).unwrap().pending.is_empty());
 }
+
+#[test]
+fn reordered_default_lines_stay_put() {
+    // The loop that loads ~/.bashrc.d moved to the top: it must never move into ~/.bashrc.d.
+    let p = setup("reorder");
+    let s = skel(".bashrc");
+    let l: Vec<&str> = s.lines().collect();
+    let reordered = [&l[..1], &[""], &l[16..], &l[1..16]].concat().join("\n") + "\n";
+    fs::write(p.home.join(".bashrc"), &reordered).unwrap();
+    run_once(&p).unwrap();
+    assert_eq!(read(&p, ".bashrc"), reordered);
+    assert_eq!(read(&p, ".bashrc.d/tools.sh"), "# tools\n");
+    assert!(State::load(&p).unwrap().pending.is_empty());
+}
+
+#[test]
+fn prompt_will_not_move_half_an_if() {
+    let p = setup("halfif");
+    let wrapped = skel(".bashrc").replace(
+        "if [ -f /etc/bashrc ]; then\n    . /etc/bashrc\nfi\n",
+        "if [ -z \"$NO_SYS\" ]; then\nif [ -f /etc/bashrc ]; then\n    . /etc/bashrc\nfi\nfi\n",
+    );
+    fs::write(p.home.join(".bashrc"), &wrapped).unwrap();
+    run_once(&p).unwrap();
+    assert_eq!(State::load(&p).unwrap().pending.len(), 2);
+    let out = prompt(&p, "t\nt\n");
+    assert!(out.contains("half of an if/loop"), "{out}");
+    assert_eq!(read(&p, ".bashrc"), wrapped);
+    assert_eq!(read(&p, ".bashrc.d/tools.sh"), "# tools\n");
+    run_once(&p).unwrap();
+    assert!(State::load(&p).unwrap().pending.is_empty(), "not asked again");
+}
+
+#[test]
+fn alias_naming_a_known_tool_still_moves() {
+    let p = setup("cargoalias");
+    fs::write(p.home.join(".bashrc.d/aliases.sh"), "alias cb=\"cargo build\"\n").unwrap();
+    append(&p, ".bashrc", "alias ct=\"cargo test\"\n");
+    run_once(&p).unwrap();
+    assert_eq!(read(&p, ".bashrc"), skel(".bashrc"));
+    assert!(read(&p, ".bashrc.d/aliases.sh").contains("alias ct=\"cargo test\""));
+}

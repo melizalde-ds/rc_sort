@@ -27,7 +27,11 @@ pub fn run_watch(p: &Paths) -> Result<()> {
                     pass(p);
                 }
             }
-            Err(e) => eprintln!("bashrc-sort: watch error: {e}"),
+            Err(e) => {
+                // Events may be lost (e.g. queue overflow): check the files anyway.
+                eprintln!("bashrc-sort: watch error: {e}");
+                pass(p);
+            }
         }
     }
     anyhow::bail!("file watcher stopped")

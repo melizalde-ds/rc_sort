@@ -40,8 +40,15 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
         state.pending.retain(|x| x.hash != item.hash);
         match answer {
             Answer::Move(cat) => {
-                // Ok(false): the block was edited or removed since; nothing to move.
-                move_block(p, &mut state, &item.file, item.hash, cat)?;
+                if !move_block(p, &mut state, &item.file, item.hash, cat)? {
+                    // Keep it, or the next pass would ask about it forever.
+                    state.kept.insert(item.hash);
+                    writeln!(
+                        out,
+                        "bashrc-sort: left in ~/{}: it changed since, or it is half of an if/loop",
+                        item.file
+                    )?;
+                }
             }
             Answer::Keep => {
                 state.kept.insert(item.hash);

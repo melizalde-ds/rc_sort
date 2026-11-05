@@ -51,7 +51,7 @@ pub fn classify(b: &Block) -> Option<Category> {
         Some(Category::Functions)
     } else if code.iter().all(|t| t.starts_with("alias ")) {
         Some(Category::Aliases)
-    } else if code.iter().any(|t| sets_path(t) || runs_eval(t) || sources_file(t))
+    } else if code.iter().any(|t| sets_path(t) || runs_command(t) || sources_file(t))
         || !tools_named(&code.join("\n")).is_empty()
     {
         Some(Category::Tools)
@@ -96,8 +96,10 @@ fn sets_path(t: &str) -> bool {
     })
 }
 
-fn runs_eval(t: &str) -> bool {
-    t.contains("eval \"$(") || t.contains("eval $(") || t.contains("eval \"`")
+/// Runs a command (`$(…)` or backticks), e.g. `eval "$(fnm env)"`. Such blocks go to
+/// tools.sh, which loads last, so the command sees the PATH the tools set up.
+fn runs_command(t: &str) -> bool {
+    t.contains("$(") || t.contains('`')
 }
 
 /// `.`, `\.` or `source` as a command: at line start or after `&&`, `||`, `;`, `then`, `do`, `else`, `{`.
@@ -180,6 +182,13 @@ mod tests {
     #[test]
     fn mixed_alias_export_is_unsure() {
         assert_eq!(class("alias a=b\nexport C=d"), None);
+    }
+
+    #[test]
+    fn export_running_a_command_is_tools() {
+        // exports.sh loads before tools.sh; `which java` needs the PATH that tools set up.
+        let t = "export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))";
+        assert_eq!(class(t), Some(Tools));
     }
 
     #[test]

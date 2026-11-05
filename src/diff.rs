@@ -1,24 +1,44 @@
 use similar::{DiffOp, TextDiff};
+use std::collections::HashSet;
 
 /// A replaced line this similar to a default line is an edit of it, not an addition.
 const CHANGED_RATIO: f32 = 0.6;
 
 /// Indexes (0-based, ascending) of lines in `current` that were added compared to `default`.
-/// Edited default lines are not additions: moving them out could break the shell.
+/// Edited or moved default lines are not additions: moving them out could break the shell.
 pub fn added_lines(default: &str, current: &str) -> Vec<usize> {
     let old: Vec<&str> = default.lines().collect();
     let new: Vec<&str> = current.lines().collect();
+    let diff = TextDiff::from_lines(default, current);
+    // Default lines gone from their place; the same line elsewhere was moved, not added.
+    // shortcut: matches single lines, so if a default `fi` was deleted, an appended `fi`
+    // also stays put and its block is asked about instead of moved.
+    let deleted: HashSet<&str> = diff
+        .ops()
+        .iter()
+        .flat_map(|op| match *op {
+            DiffOp::Delete { old_index, old_len, .. } | DiffOp::Replace { old_index, old_len, .. } => {
+                &old[old_index..old_index + old_len]
+            }
+            _ => &[][..],
+        })
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
+    let moved = |line: &str| deleted.contains(line.trim());
     let mut added = Vec::new();
-    for op in TextDiff::from_lines(default, current).ops() {
+    for op in diff.ops() {
         match *op {
-            DiffOp::Insert { new_index, new_len, .. } => added.extend(new_index..new_index + new_len),
+            DiffOp::Insert { new_index, new_len, .. } => {
+                added.extend((new_index..new_index + new_len).filter(|&i| !moved(new[i])));
+            }
             DiffOp::Replace { old_index, old_len, new_index, new_len } => {
                 let olds = &old[old_index..old_index + old_len];
                 for (i, line) in new.iter().enumerate().skip(new_index).take(new_len) {
                     let edited = olds
                         .iter()
                         .any(|o| TextDiff::from_chars(*o, *line).ratio() >= CHANGED_RATIO);
-                    if !edited {
+                    if !edited && !moved(line) {
                         added.push(i);
                     }
                 }
