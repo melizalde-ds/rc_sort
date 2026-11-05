@@ -1,4 +1,16 @@
-fn main() {
-    eprintln!("usage: bashrc-sort watch|prompt|once");
-    std::process::exit(2);
+use anyhow::{Context, Result};
+use bashrc_sort::sort::run_once;
+use bashrc_sort::state::Paths;
+use std::path::PathBuf;
+
+fn main() -> Result<()> {
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    let p = Paths { home: PathBuf::from(home), skel: PathBuf::from("/etc/skel") };
+    match std::env::args().nth(1).as_deref() {
+        Some("once") => run_once(&p),
+        _ => {
+            eprintln!("usage: bashrc-sort watch|prompt|once");
+            std::process::exit(2);
+        }
+    }
 }
