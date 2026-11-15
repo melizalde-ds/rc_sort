@@ -3,7 +3,7 @@
 //! asks about unsure blocks, and changes nothing until you answer `y`.
 
 use crate::blocks::{split_blocks, Block};
-use crate::classify::{classify, leaves_file, Category};
+use crate::classify::{classify, leaves_file, tools_named, Category};
 use crate::prompt::{ask, Answer};
 use crate::sort::{block_name, dup_in, is_category_file, place, rc_files, tool_clash, without, HOOK};
 use crate::state::{atomic_write, backup, hash, load_kept, lock, Paths, State, WATCHED};
@@ -87,6 +87,14 @@ pub(crate) struct Src {
     scan: Scan,
 }
 
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+impl Src {
+    /// Starts with `[[ $- == *i* ]] || return`: moved blocks get wrapped.
+    pub(crate) fn guarded(&self) -> bool {
+        self.scan.guard.is_some()
+    }
+}
+
 /// What happens to a block on apply.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Act {
@@ -114,6 +122,12 @@ pub(crate) struct Item {
     pub(crate) act: Act,
     /// `None`: sure. `Some("")`: no rule matched. `Some(why)`: may be a duplicate.
     pub(crate) note: Option<String>,
+    /// What tidy chose before anyone answered (`act` starts equal to it).
+    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    pub(crate) suggested: Act,
+    /// For a same-tool clash: the file and the block there that names the tool.
+    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    pub(crate) clash: Option<(String, String)>,
 }
 
 /// Everything tidy would do, before anyone has answered. Both front ends (plain prompts
@@ -129,6 +143,33 @@ pub(crate) struct Plan {
 impl Plan {
     pub(crate) fn has_changes(&self) -> bool {
         self.items.iter().any(|i| i.act != Act::Leave)
+    }
+
+    /// What source file `si` becomes with the current choices: the text left over, and
+    /// whether the file is deleted instead (emptied, in `~/.bashrc.d`, not a symlink).
+    pub(crate) fn leftover(&self, si: usize) -> (String, bool) {
+        let s = &self.srcs[si];
+        let mut gone: Vec<&Block> =
+            self.items.iter().filter(|i| i.src == si && i.act.changes_file()).map(|i| &i.block).collect();
+        // Blocks that stay in the file (kept, unanswered, or never listed because kept earlier).
+        let stays = s.scan.blocks.len() > gone.len();
+        let guard_block;
+        if let (Some(g), false) = (s.scan.guard, stays) {
+            let text = s.text.lines().nth(g).unwrap_or("").to_string();
+            guard_block = Block { lines: vec![g], text, balanced: true };
+            gone.push(&guard_block);
+        }
+        let rest = without(&s.text, &gone);
+        let is_link = fs::symlink_metadata(&s.path).is_ok_and(|m| m.file_type().is_symlink());
+        let delete = rest.trim().is_empty() && s.rc_name.is_some() && !is_link;
+        (rest, delete)
+    }
+
+    /// Blocks that stay in source file `si` (kept earlier ones included).
+    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    pub(crate) fn remaining(&self, si: usize) -> usize {
+        let gone = self.items.iter().filter(|i| i.src == si && i.act.changes_file()).count();
+        self.srcs[si].scan.blocks.len().saturating_sub(gone)
     }
 
     pub(crate) fn describe(&self, i: &Item) -> String {
@@ -160,22 +201,35 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             }
             let text = if s.scan.guard.is_some() { wrap_interactive(&b.text) } else { b.text.clone() };
             let skip = s.rc_name.as_deref();
+            let mut clash = None;
             let (act, note) = if let Some(other) = dup_in(&files, &text, skip) {
                 (Act::Dup(other.to_string()), None)
             } else {
                 match classify(b) {
                     Some(Category::Tools) => match tool_clash(&files, &text, skip) {
-                        Some((other, tool)) => (Act::Leave, Some(format!("{other} already has a {tool} block"))),
+                        Some((other, tool)) => {
+                            clash = block_naming(&files, &other, tool).map(|t| (other.clone(), t));
+                            (Act::Leave, Some(format!("{other} already has a {tool} block")))
+                        }
                         None => (Act::Move(Category::Tools), None),
                     },
                     Some(cat) => (Act::Move(cat), None),
                     None => (Act::Leave, Some(String::new())),
                 }
             };
-            items.push(Item { src: si, block: b.clone(), text, name: block_name(b), act, note });
+            let suggested = act.clone();
+            items.push(Item { src: si, block: b.clone(), text, name: block_name(b), act, note, suggested, clash });
         }
     }
     Ok(Plan { srcs, items, files })
+}
+
+
+/// The first block of `file` (one of `files`) that names `tool`.
+fn block_naming(files: &[(String, String)], file: &str, tool: &str) -> Option<String> {
+    let (_, text) = files.iter().find(|(n, _)| n == file)?;
+    let lines: Vec<usize> = (0..text.lines().count()).collect();
+    split_blocks(text, &lines).into_iter().find(|b| tools_named(&b.text).contains(&tool)).map(|b| b.text)
 }
 
 /// Plain front end: prints the plan, asks about each unsure block in order, then `Apply? [y/N]`.
@@ -239,7 +293,6 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
             continue;
         }
         backup(p, &s.shown.trim_start_matches("~/").replace('/', "_"), &s.text)?;
-        let mut gone: Vec<&Block> = Vec::new();
         for i in &mine {
             match &i.act {
                 Act::Move(cat) => {
@@ -251,21 +304,11 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
                     "bashrc-sort: removed duplicate {} block from {} (already in {other})",
                     i.name, s.shown
                 )?,
-                Act::Keep | Act::Leave => continue,
+                Act::Keep | Act::Leave => {}
             }
-            gone.push(&i.block);
         }
-        // Blocks that stay in the file (kept, unanswered, or never listed because kept earlier).
-        let stays = s.scan.blocks.len() > gone.len();
-        let guard_block;
-        if let (Some(g), false) = (s.scan.guard, stays) {
-            let text = s.text.lines().nth(g).unwrap_or("").to_string();
-            guard_block = Block { lines: vec![g], text, balanced: true };
-            gone.push(&guard_block);
-        }
-        let rest = without(&s.text, &gone);
-        let is_link = fs::symlink_metadata(&s.path).is_ok_and(|m| m.file_type().is_symlink());
-        if rest.trim().is_empty() && s.rc_name.is_some() && !is_link {
+        let (rest, delete) = plan.leftover(si);
+        if delete {
             fs::remove_file(&s.path).with_context(|| format!("removing {}", s.path.display()))?;
             writeln!(out, "bashrc-sort: removed {} (empty now)", s.shown)?;
         } else {

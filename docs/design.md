@@ -153,12 +153,21 @@ except the four targets and the hook) with the same rules. Every line counts as 
   - **TUI** when stdin and stdout are terminals, `TERM` isn't `dumb` and the window is at least
     60×12 (cargo feature `tui`, on by default; ratatui). Drawn inline below the prompt, not full
     screen: fits the content, at most 60% of the terminal (never under 10 lines), then the list
-    scrolls. Blocks are grouped under their source file with ✓ sure / ? unsure / ⊘ can't move;
-    any choice can be changed in any order (`t/e/a/f/k/u`). Preview (hidden under 90 columns,
-    `p` toggles) shows the end of the target file and the block as `+` lines. `y` asks
-    `Apply? … y/N` in the footer; `q`/Esc/Ctrl-C quit without changes; `?` lists the keys.
-    On close the box is erased and a short summary stays (◇ title, │ moves / drops / kept /
-    skipped files, └ done or nothing changed). Not opened when there is nothing to sort.
+    scrolls. Blocks are grouped under their source file, whose heading says what the file
+    becomes (`→ deleted (empty)`, `· keeps N blocks`, `· interactive only`). Rows show ✓ sure /
+    ? unsure / ⊘ can't move, and • when you changed the suggestion (`r` resets it). Any choice
+    can be changed in any order (`t/e/a/f/k/u`); `Tab`/`Shift-Tab` jump between undecided
+    unsure blocks; mouse click selects, wheel moves. The header counts moves / keeps / drops /
+    unsure left. Preview (hidden under 90 columns, `p` toggles) shows the end of the target
+    file and the block as `+` lines, comments dimmed and leading keywords bold; a same-tool
+    clash also shows the block already in the other file. `y` asks `Apply? … y/N` in the
+    footer; `q`/Esc/Ctrl-C quit without changes; `?` lists the keys. On close the box is erased
+    and a short summary stays (◇ title, │ moves / drops / kept / skipped files, └ done or
+    nothing changed). Not opened when there is nothing to sort.
+  - On a resize the visible screen is scrolled into history and the box starts again at the
+    top: terminals re-wrap an inline box differently, so redrawing in place leaves copies.
+  - `NO_COLOR` drops colors (bold/dim stay); a non-UTF-8 locale (LC_ALL / LC_CTYPE / LANG)
+    gets ASCII icons and borders.
   - **Plain** otherwise or with `--plain`: prints the plan, asks about unsure blocks in order
     (sure blocks can't be changed), then `Apply? [y/N]`.
   - Half of an if/loop can't be moved in either. The shell hook (`prompt`) stays plain text.
