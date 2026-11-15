@@ -3,7 +3,7 @@
 //! asks about unsure blocks, and changes nothing until you answer `y`.
 
 use crate::blocks::{split_blocks, Block};
-use crate::classify::{classify, leaves_file, Category};
+use crate::classify::{classify, leaves_file, tools_named, Category};
 use crate::prompt::{ask, Answer};
 use crate::sort::{block_name, dup_in, is_category_file, place, rc_files, tool_clash, without, HOOK};
 use crate::state::{atomic_write, backup, hash, load_kept, lock, Paths, State, WATCHED};
@@ -77,39 +77,119 @@ pub fn unsorted(p: &Paths) -> Result<Vec<String>> {
         .collect())
 }
 
-struct Src {
+pub(crate) struct Src {
     path: PathBuf,
     /// `~/…` or the absolute path, for messages.
-    shown: String,
+    pub(crate) shown: String,
     /// File name, if the file lives in `~/.bashrc.d` (dup checks skip it; may be deleted).
     rc_name: Option<String>,
     text: String,
     scan: Scan,
 }
 
-enum Act {
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+impl Src {
+    /// Starts with `[[ $- == *i* ]] || return`: moved blocks get wrapped.
+    pub(crate) fn guarded(&self) -> bool {
+        self.scan.guard.is_some()
+    }
+}
+
+/// What happens to a block on apply.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Act {
     Move(Category),
+    /// Already in this `~/.bashrc.d` file: drop it from the source.
     Dup(String),
+    /// Stays in the source and is never asked about again.
+    Keep,
+    /// Stays in the source for now.
     Leave,
 }
 
-struct Item {
-    src: usize,
-    block: Block,
-    /// What lands in the target (wrapped if the source had an interactive guard).
-    text: String,
-    name: String,
-    act: Act,
+impl Act {
+    fn changes_file(&self) -> bool {
+        matches!(self, Act::Move(_) | Act::Dup(_))
+    }
 }
 
-pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, out: &mut impl Write) -> Result<()> {
-    let srcs = collect(p, target, out)?;
-    let mut kept = load_kept(p)?;
-    let new_kept_start = kept.len();
-    let mut items: Vec<Item> = Vec::new();
-    let mut asks: Vec<(usize, String)> = Vec::new();
-    let files = rc_files(p)?;
+pub(crate) struct Item {
+    pub(crate) src: usize,
+    pub(crate) block: Block,
+    /// What lands in the target (wrapped if the source had an interactive guard).
+    pub(crate) text: String,
+    pub(crate) name: String,
+    pub(crate) act: Act,
+    /// `None`: sure. `Some("")`: no rule matched. `Some(why)`: may be a duplicate.
+    pub(crate) note: Option<String>,
+    /// What tidy chose before anyone answered (`act` starts equal to it).
+    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    pub(crate) suggested: Act,
+    /// For a same-tool clash: the file and the block there that names the tool.
+    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    pub(crate) clash: Option<(String, String)>,
+}
 
+/// Everything tidy would do, before anyone has answered. Both front ends (plain prompts
+/// and the TUI) only change `items[..].act`, then hand the plan to `apply`.
+pub(crate) struct Plan {
+    pub(crate) srcs: Vec<Src>,
+    pub(crate) items: Vec<Item>,
+    /// `~/.bashrc.d` files as they were when planning, for duplicate checks and previews.
+    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    pub(crate) files: Vec<(String, String)>,
+}
+
+impl Plan {
+    pub(crate) fn has_changes(&self) -> bool {
+        self.items.iter().any(|i| i.act != Act::Leave)
+    }
+
+    /// What source file `si` becomes with the current choices: the text left over, and
+    /// whether the file is deleted instead (emptied, in `~/.bashrc.d`, not a symlink).
+    pub(crate) fn leftover(&self, si: usize) -> (String, bool) {
+        let s = &self.srcs[si];
+        let mut gone: Vec<&Block> =
+            self.items.iter().filter(|i| i.src == si && i.act.changes_file()).map(|i| &i.block).collect();
+        // Blocks that stay in the file (kept, unanswered, or never listed because kept earlier).
+        let stays = s.scan.blocks.len() > gone.len();
+        let guard_block;
+        if let (Some(g), false) = (s.scan.guard, stays) {
+            let text = s.text.lines().nth(g).unwrap_or("").to_string();
+            guard_block = Block { lines: vec![g], text, balanced: true };
+            gone.push(&guard_block);
+        }
+        let rest = without(&s.text, &gone);
+        let is_link = fs::symlink_metadata(&s.path).is_ok_and(|m| m.file_type().is_symlink());
+        let delete = rest.trim().is_empty() && s.rc_name.is_some() && !is_link;
+        (rest, delete)
+    }
+
+    /// Blocks that stay in source file `si` (kept earlier ones included).
+    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    pub(crate) fn remaining(&self, si: usize) -> usize {
+        let gone = self.items.iter().filter(|i| i.src == si && i.act.changes_file()).count();
+        self.srcs[si].scan.blocks.len().saturating_sub(gone)
+    }
+
+    pub(crate) fn describe(&self, i: &Item) -> String {
+        let s = &self.srcs[i.src];
+        let guard = if s.scan.guard.is_some() { " (interactive only)" } else { "" };
+        match &i.act {
+            Act::Move(cat) => format!("{}: {} → {}{guard}", s.shown, i.name, cat.file_name()),
+            Act::Dup(other) => format!("{}: {} is already in {other}, remove this copy", s.shown, i.name),
+            Act::Keep => format!("{}: {} stays, not asked again", s.shown, i.name),
+            Act::Leave => format!("{}: {} stays", s.shown, i.name),
+        }
+    }
+}
+
+/// Scans and classifies; changes nothing. Files it can't sort are reported to `out`.
+pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<Plan> {
+    let srcs = collect(p, target, out)?;
+    let kept = load_kept(p)?;
+    let files = rc_files(p)?;
+    let mut items: Vec<Item> = Vec::new();
     for (si, s) in srcs.iter().enumerate() {
         if let Some(why) = &s.scan.problem {
             writeln!(out, "bashrc-sort: left {} alone: {why}", s.shown)?;
@@ -121,59 +201,68 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
             }
             let text = if s.scan.guard.is_some() { wrap_interactive(&b.text) } else { b.text.clone() };
             let skip = s.rc_name.as_deref();
+            let mut clash = None;
             let (act, note) = if let Some(other) = dup_in(&files, &text, skip) {
                 (Act::Dup(other.to_string()), None)
             } else {
                 match classify(b) {
                     Some(Category::Tools) => match tool_clash(&files, &text, skip) {
-                        Some((other, tool)) => (Act::Leave, Some(format!("{other} already has a {tool} block"))),
+                        Some((other, tool)) => {
+                            clash = block_naming(&files, &other, tool).map(|t| (other.clone(), t));
+                            (Act::Leave, Some(format!("{other} already has a {tool} block")))
+                        }
                         None => (Act::Move(Category::Tools), None),
                     },
                     Some(cat) => (Act::Move(cat), None),
                     None => (Act::Leave, Some(String::new())),
                 }
             };
-            if let Some(n) = note {
-                asks.push((items.len(), n));
-            }
-            items.push(Item { src: si, block: b.clone(), text, name: block_name(b), act });
+            let suggested = act.clone();
+            items.push(Item { src: si, block: b.clone(), text, name: block_name(b), act, note, suggested, clash });
         }
     }
+    Ok(Plan { srcs, items, files })
+}
 
-    let sure: Vec<&Item> = items.iter().filter(|i| !matches!(i.act, Act::Leave)).collect();
+
+/// The first block of `file` (one of `files`) that names `tool`.
+fn block_naming(files: &[(String, String)], file: &str, tool: &str) -> Option<String> {
+    let (_, text) = files.iter().find(|(n, _)| n == file)?;
+    let lines: Vec<usize> = (0..text.lines().count()).collect();
+    split_blocks(text, &lines).into_iter().find(|b| tools_named(&b.text).contains(&tool)).map(|b| b.text)
+}
+
+/// Plain front end: prints the plan, asks about each unsure block in order, then `Apply? [y/N]`.
+pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, out: &mut impl Write) -> Result<()> {
+    let mut plan = plan(p, target, out)?;
+    let sure: Vec<String> = plan.items.iter().filter(|i| i.note.is_none()).map(|i| plan.describe(i)).collect();
     if !sure.is_empty() {
         writeln!(out, "bashrc-sort tidy will:")?;
-        for i in &sure {
-            writeln!(out, "  {}", describe(&srcs[i.src], i))?;
+        for line in &sure {
+            writeln!(out, "  {line}")?;
         }
     }
-    for (idx, note) in asks {
-        let (block, s) = (items[idx].block.clone(), &srcs[items[idx].src]);
+    for idx in 0..plan.items.len() {
+        let Some(note) = plan.items[idx].note.clone() else { continue };
+        let shown = plan.srcs[plan.items[idx].src].shown.clone();
         let header = if note.is_empty() {
-            format!("bashrc-sort: unsure where this block from {} goes:", s.shown)
+            format!("bashrc-sort: unsure where this block from {shown} goes:")
         } else {
-            format!("bashrc-sort: {note}; this one from {} may be a duplicate:", s.shown)
+            format!("bashrc-sort: {note}; this one from {shown} may be a duplicate:")
         };
+        let block = plan.items[idx].block.clone();
         match ask(&header, &block.text, input, out)? {
             Answer::Move(cat) if block.balanced => {
-                items[idx].act = Act::Move(cat);
-                writeln!(out, "  {}", describe(s, &items[idx]))?;
+                plan.items[idx].act = Act::Move(cat);
+                writeln!(out, "  {}", plan.describe(&plan.items[idx]))?;
             }
-            Answer::Move(_) => writeln!(out, "  left in {}: it is half of an if/loop", s.shown)?,
-            Answer::Keep => {
-                kept.insert(hash(&block.text));
-            }
+            Answer::Move(_) => writeln!(out, "  left in {shown}: it is half of an if/loop")?,
+            Answer::Keep => plan.items[idx].act = Act::Keep,
             Answer::Later => {}
         }
     }
 
-    let todo = items.iter().any(|i| !matches!(i.act, Act::Leave));
-    let kept_changed = kept.len() != new_kept_start;
-    if !todo {
-        if kept_changed {
-            let _lock = lock(p)?;
-            save_kept(p, &kept)?;
-        }
+    if !plan.has_changes() {
         writeln!(out, "bashrc-sort: nothing to tidy")?;
         return Ok(());
     }
@@ -185,19 +274,25 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
         writeln!(out, "bashrc-sort: nothing changed")?;
         return Ok(());
     }
+    apply(p, &plan, out).map(|_| ())
+}
 
+/// Writes the plan: moves and drops blocks, deletes emptied files, saves kept blocks.
+/// A source file that changed since planning is skipped; returns their `srcs` indexes.
+pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<usize>> {
     let _lock = lock(p)?;
-    for (si, s) in srcs.iter().enumerate() {
-        let mine: Vec<&Item> = items.iter().filter(|i| i.src == si).collect();
-        if !mine.iter().any(|i| !matches!(i.act, Act::Leave)) {
+    let mut skipped = Vec::new();
+    for (si, s) in plan.srcs.iter().enumerate() {
+        let mine: Vec<&Item> = plan.items.iter().filter(|i| i.src == si).collect();
+        if !mine.iter().any(|i| i.act.changes_file()) {
             continue;
         }
         if fs::read_to_string(&s.path).ok().as_deref() != Some(s.text.as_str()) {
             writeln!(out, "bashrc-sort: {} changed while you were answering; run tidy again", s.shown)?;
+            skipped.push(si);
             continue;
         }
         backup(p, &s.shown.trim_start_matches("~/").replace('/', "_"), &s.text)?;
-        let mut gone: Vec<&Block> = Vec::new();
         for i in &mine {
             match &i.act {
                 Act::Move(cat) => {
@@ -209,42 +304,26 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
                     "bashrc-sort: removed duplicate {} block from {} (already in {other})",
                     i.name, s.shown
                 )?,
-                Act::Leave => continue,
+                Act::Keep | Act::Leave => {}
             }
-            gone.push(&i.block);
         }
-        // Blocks that stay in the file (kept, unanswered, or never listed because kept earlier).
-        let stays = s.scan.blocks.len() > gone.len();
-        let guard_block;
-        if let (Some(g), false) = (s.scan.guard, stays) {
-            let text = s.text.lines().nth(g).unwrap_or("").to_string();
-            guard_block = Block { lines: vec![g], text, balanced: true };
-            gone.push(&guard_block);
-        }
-        let rest = without(&s.text, &gone);
-        let is_link = fs::symlink_metadata(&s.path).is_ok_and(|m| m.file_type().is_symlink());
-        if rest.trim().is_empty() && s.rc_name.is_some() && !is_link {
+        let (rest, delete) = plan.leftover(si);
+        if delete {
             fs::remove_file(&s.path).with_context(|| format!("removing {}", s.path.display()))?;
             writeln!(out, "bashrc-sort: removed {} (empty now)", s.shown)?;
         } else {
             atomic_write(&s.path, &rest)?;
         }
     }
-    if kept_changed {
+    let kept: HashSet<u64> =
+        plan.items.iter().filter(|i| i.act == Act::Keep).map(|i| hash(&i.block.text)).collect();
+    if !kept.is_empty() {
         save_kept(p, &kept)?;
+        writeln!(out, "bashrc-sort: kept {} block(s) in place; tidy won't ask about them again", kept.len())?;
     }
     writeln!(out, "bashrc-sort: done; backups in {}", p.state_dir().join("backups").display())?;
     writeln!(out, "bashrc-sort: open shells keep the old setup until you run: source ~/.bashrc")?;
-    Ok(())
-}
-
-fn describe(s: &Src, i: &Item) -> String {
-    let guard = if s.scan.guard.is_some() { " (interactive only)" } else { "" };
-    match &i.act {
-        Act::Move(cat) => format!("{}: {} → {}{guard}", s.shown, i.name, cat.file_name()),
-        Act::Dup(other) => format!("{}: {} is already in {other}, drop it", s.shown, i.name),
-        Act::Leave => format!("{}: {} stays", s.shown, i.name),
-    }
+    Ok(skipped)
 }
 
 /// Adds `kept` to the saved state. Caller holds the lock.

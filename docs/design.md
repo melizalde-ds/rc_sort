@@ -146,8 +146,48 @@ wording, code layout.
 
 `bashrc-sort tidy [file-or-dir]` sorts existing files (default: every file in `~/.bashrc.d`
 except the four targets and the hook) with the same rules. Every line counts as added.
-- Plan first, ask about unsure blocks inline, apply only on `y`. Lock held only while writing;
-  a file that changed during the questions is skipped.
+- Plan first, then decide, then apply only on `y`. Lock held only while writing; a file that
+  changed during the questions is skipped. "Keep in place" is saved on apply too, so declining
+  changes nothing (changed 2026-11-15).
+- Two front ends over the same plan and apply (added 2026-11-15, user request):
+  - **TUI** when stdin and stdout are terminals, `TERM` isn't `dumb` and the window is at least
+    60×12 (cargo feature `tui`, on by default; ratatui). Drawn inline below the prompt, not full
+    screen: fits the content, at most 60% of the terminal (never under 10 lines), then the list
+    scrolls. Blocks are grouped under their source file, whose heading says what the file
+    becomes (`→ deleted (empty)`, `· keeps N blocks`, `· interactive only`). Rows show ✓ sure /
+    ? unsure / ⊘ can't move, and • when you changed the suggestion (`r` resets it). Targets are
+    fixed-width badges: `[ TOOLS ]` / EXPORTS / ALIASES / FUNCTIONS, KEEP, LATER for undecided,
+    REMOVE for an exact duplicate. Any choice can be changed in any
+    order (`t/e/a/f`, `k` keep, `l` later); a two-line footer spells out each key; `Tab`/`Shift-Tab` jump between undecided
+    unsure blocks; mouse click selects, wheel moves. The header counts moves / keeps / drops /
+    unsure left. Preview (hidden under 90 columns, `p` toggles) shows the end of the target
+    file and the block as `+` lines, comments dimmed and leading keywords bold; a same-tool
+    clash also shows the block already in the other file. `y` asks `Apply? … y/N` in the
+    footer; `q`/Esc/Ctrl-C quit without changes; `?` lists the keys. On close the box is erased
+    and a short summary stays (◇ title, │ moves / drops / kept / skipped files, └ done or
+    nothing changed). Not opened when there is nothing to sort.
+  - On a resize the visible screen is scrolled into history and the box starts again at the
+    top: terminals re-wrap an inline box differently, so redrawing in place leaves copies.
+  - Look (2026-11-15, after looking at TUI design guidance: "usable at 16 colors, beautiful
+    at true color", depth from surfaces rather than boxes, one signature accent): one rounded
+    box with a thin divider between list and preview, 1 column of padding; header with a ◆
+    logo, an 8-cell progress bar of decided blocks (green with "all decided · y to apply") and
+    counts; file headings as `name ───── outcome` with a blank line between files; the selected
+    row gets an accent bar `▌` and bold name; badges are ` ● tools `, ` ○ keep `, ` ◐ later `,
+    ` ✕ remove `; footer keys are drawn as key caps.
+  - Palette by meaning, in two tiers. 16 colors (default, and under NO_COLOR): named ANSI only,
+    accent cyan, good green, attention yellow, danger red, muted dim, no backgrounds. True
+    color (`COLORTERM=truecolor|24bit`, dark background assumed): accent violet #a78bfa, good
+    #86efac, attention #fcd34d, danger #fca5a5, muted #8b8fa3, and a surface tint #2a2d3e behind
+    the selected row, badges and key caps. `BASHRC_SORT_THEME=ansi|dark|light` overrides (light
+    uses darker shades on #e6e6f0). Asking the terminal for its background (OSC 11) is not done:
+    unreliable over tmux/ssh. No black/white text in any tier; every color comes with an icon
+    or a word. A unit test checks every drawn cell of every tier against this.
+  - `NO_COLOR` drops colors (bold/dim stay); a non-UTF-8 locale (LC_ALL / LC_CTYPE / LANG)
+    gets ASCII icons and borders.
+  - **Plain** otherwise or with `--plain`: prints the plan, asks about unsure blocks in order
+    (sure blocks can't be changed), then `Apply? [y/N]`.
+  - Half of an if/loop can't be moved in either. The shell hook (`prompt`) stays plain text.
 - Leading `[[ $- == *i* ]] || return`: blocks below it are wrapped in `if [[ $- == *i* ]]`
   so the `return` can't cut off later lines of the merged file. Any other `return`/`exit`
   outside a function: file left alone (the service also never moves such a block).

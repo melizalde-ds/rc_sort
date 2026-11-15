@@ -258,7 +258,15 @@ fn watch_sorts_on_change_and_on_startup() {
     fs::write(&tmp, format!("{}alias late=\"ls\"\n", skel(".bashrc"))).unwrap();
     fs::rename(&tmp, p.home.join(".bashrc")).unwrap();
     assert!(wait_for(".bashrc.d/aliases.sh", "alias late=\"ls\""), "change after rename");
-    assert_eq!(read(&p, ".bashrc"), skel(".bashrc"));
+    // The target is written before the watched file is rewritten, so wait for both.
+    let restored = (0..50).any(|_| {
+        let done = read(&p, ".bashrc") == skel(".bashrc");
+        if !done {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        done
+    });
+    assert!(restored, ".bashrc back to its default:\n{}", read(&p, ".bashrc"));
 }
 
 #[test]
