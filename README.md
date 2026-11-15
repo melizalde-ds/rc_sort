@@ -10,10 +10,13 @@ about in your next terminal. Design: [docs/design.md](docs/design.md).
 
 ```bash
 cargo install --path .
-cp dist/zz-bashrc-sort.sh ~/.bashrc.d/
-mkdir -p ~/.config/systemd/user && cp dist/bashrc-sort.service ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now bashrc-sort
+bashrc-sort tidy      # optional: sort what's already in ~/.bashrc.d first
+bashrc-sort install   # writes the hook + systemd unit, starts the service
 ```
+
+`install` writes `~/.bashrc.d/zz-bashrc-sort.sh` and
+`~/.config/systemd/user/bashrc-sort.service` (both embedded from `dist/`), then runs
+`daemon-reload`, `enable` and `restart`. Run it again after upgrading.
 
 ## Use
 

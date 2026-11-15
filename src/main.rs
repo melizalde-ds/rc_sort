@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use bashrc_sort::install::run_install;
 use bashrc_sort::prompt::run_prompt;
 use bashrc_sort::sort::run_once;
 use bashrc_sort::state::Paths;
@@ -12,13 +13,14 @@ fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("watch") => run_watch(&p),
         Some("once") => run_once(&p),
+        Some("install") => run_install(&p, &mut std::io::stdout()),
         Some("tidy") => {
             let target = std::env::args_os().nth(2).map(PathBuf::from);
             run_tidy(&p, target, &mut std::io::stdin().lock(), &mut std::io::stdout())
         }
         Some("prompt") => run_prompt(&p, &mut std::io::stdin().lock(), &mut std::io::stdout()),
         _ => {
-            eprintln!("usage: bashrc-sort watch|prompt|once|tidy [file-or-dir]");
+            eprintln!("usage: bashrc-sort install|tidy [file-or-dir]|once|watch|prompt");
             std::process::exit(2);
         }
     }

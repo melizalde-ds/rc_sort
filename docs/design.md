@@ -133,8 +133,9 @@ default, and the next terminal says what happened.
 - A missing target file in `~/.bashrc.d/` is created.
 - Editing with nano while the service runs: the line moves out on save; if nano saves
   again with the line, dedup (step 2 of Moving) removes it again without a duplicate.
-- The hook file and systemd unit are written by the install steps in the plan,
-  not by the binary.
+- The hook file and systemd unit are embedded in the binary and written by
+  `bashrc-sort install` (changed 2026-11-15, user request), which then enables and
+  restarts the service. It refuses to run from anywhere but `~/.cargo/bin`.
 
 ## Left to the builder
 

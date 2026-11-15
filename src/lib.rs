@@ -6,3 +6,4 @@ pub mod sort;
 pub mod prompt;
 pub mod watch;
 pub mod tidy;
+pub mod install;

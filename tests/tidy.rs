@@ -211,3 +211,18 @@ fn hook_warns_about_unsorted_files() {
     );
     assert!(!p.state_dir().exists(), "warning stays read-only");
 }
+
+// ---- install ----
+
+#[test]
+fn install_writes_hook_and_unit_once() {
+    use bashrc_sort::install::{install_files, unit_path};
+    let p = setup("install", &[]);
+    let first = install_files(&p).unwrap();
+    assert_eq!(first.len(), 2);
+    let hook = rc(&p, "zz-bashrc-sort.sh").unwrap();
+    assert!(hook.contains("bashrc-sort\" prompt"));
+    assert!(fs::read_to_string(unit_path(&p)).unwrap().contains("ExecStart=%h/.cargo/bin/bashrc-sort watch"));
+    assert!(install_files(&p).unwrap().is_empty(), "second run changes nothing");
+    assert!(unsorted(&p).unwrap().is_empty(), "the hook itself is never 'unsorted'");
+}
