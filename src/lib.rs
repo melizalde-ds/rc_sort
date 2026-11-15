@@ -5,3 +5,4 @@ pub mod state;
 pub mod sort;
 pub mod prompt;
 pub mod watch;
+pub mod tidy;

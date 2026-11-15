@@ -18,6 +18,11 @@ systemctl --user daemon-reload && systemctl --user enable --now bashrc-sort
 ## Use
 
 - `bashrc-sort once`: one pass by hand.
+- `bashrc-sort tidy [file-or-dir]`: sort files already in `~/.bashrc.d` (default) or a file
+  you name into the four files. Shows the plan, asks about unsure blocks, changes nothing
+  until you answer `y`. Files emptied in `~/.bashrc.d` are deleted (backed up first). A file
+  starting with `[[ $- == *i* ]] || return` keeps that meaning: its blocks are wrapped in
+  `if [[ $- == *i* ]]; then … fi`. New terminals list files that still need sorting.
 - Logs: `journalctl --user -u bashrc-sort`.
 - Backups of every rewrite: `~/.local/state/bashrc-sort/backups/`.
 - Uninstall: `systemctl --user disable --now bashrc-sort`, then delete

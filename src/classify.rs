@@ -10,6 +10,9 @@ pub enum Category {
 }
 
 impl Category {
+    pub const ALL: [Category; 4] =
+        [Category::Aliases, Category::Exports, Category::Functions, Category::Tools];
+
     pub fn file_name(self) -> &'static str {
         match self {
             Category::Aliases => "aliases.sh",
@@ -38,7 +41,7 @@ const KNOWN_TOOLS: [&str; 13] = [
 
 /// Sorts a block by the spec's rules, first match wins. `None` means unsure.
 pub fn classify(b: &Block) -> Option<Category> {
-    if !b.balanced {
+    if !b.balanced || leaves_file(b) {
         return None;
     }
     let code: Vec<&str> = b
@@ -60,6 +63,22 @@ pub fn classify(b: &Block) -> Option<Category> {
     } else {
         None
     }
+}
+
+/// True if the block can `return`/`exit` outside a function body. Sourced from a
+/// `~/.bashrc.d` file, that stops the rest of the file, so it must never be merged into one.
+pub fn leaves_file(b: &Block) -> bool {
+    let code: Vec<&str> = b
+        .text
+        .lines()
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && !t.starts_with('#'))
+        .collect();
+    !code.iter().any(|t| defines_function(t))
+        && code.iter().any(|t| {
+            t.split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+                .any(|w| w == "return" || w == "exit")
+        })
 }
 
 /// Known tool names that appear as whole words in `text`, in first-seen order.
@@ -199,6 +218,18 @@ mod tests {
     #[test]
     fn unbalanced_block_is_unsure() {
         assert_eq!(class("if true; then\n eval \"$(fnm env)\""), None);
+    }
+
+    #[test]
+    fn return_guard_is_unsure() {
+        assert_eq!(class("[[ $- == *i* ]] || return\neval \"$(starship init bash)\""), None);
+        assert_eq!(class("case $- in\n  *i*) ;;\n  *) return;;\nesac"), None);
+    }
+
+    #[test]
+    fn return_inside_function_is_fine() {
+        assert_eq!(class("f() {\n  [ -z \"$1\" ] && return 1\n  echo \"$1\"\n}"), Some(Functions));
+        assert_eq!(class("alias q=exit"), Some(Aliases));
     }
 
     #[test]

@@ -127,12 +127,7 @@ impl State {
             }
             _ => Vec::new(),
         };
-        let kept = read_opt(&dir.join("kept"))?
-            .unwrap_or_default()
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| l.trim().parse::<u64>().with_context(|| format!("bad hash in kept: {l}")))
-            .collect::<Result<_>>()?;
+        let kept = load_kept(p)?;
         let messages = read_opt(&dir.join("messages"))?
             .unwrap_or_default()
             .lines()
@@ -151,6 +146,16 @@ impl State {
         atomic_write(&dir.join("kept"), &kept.iter().map(|h| format!("{h}\n")).collect::<String>())?;
         atomic_write(&dir.join("messages"), &self.messages.iter().map(|m| format!("{m}\n")).collect::<String>())
     }
+}
+
+/// Hashes of blocks the user chose to keep in place. Read-only; no lock needed.
+pub fn load_kept(p: &Paths) -> Result<HashSet<u64>> {
+    read_opt(&p.state_dir().join("kept"))?
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.trim().parse::<u64>().with_context(|| format!("bad hash in kept: {l}")))
+        .collect()
 }
 
 /// Reads a file, or `None` if it doesn't exist.

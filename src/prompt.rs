@@ -1,14 +1,14 @@
 use crate::classify::Category;
 use crate::sort::move_block;
-use crate::state::{lock, Paths, Pending, State};
+use crate::state::{lock, Paths, State};
 use anyhow::Result;
 use std::fs;
 use std::io::{BufRead, Write};
 
 const QUESTION: &str = "[t]ools [e]xports [a]liases [f]unctions [k]eep in place: ";
 
-/// What the user chose for a pending block.
-enum Answer {
+/// What the user chose for a block.
+pub(crate) enum Answer {
     Move(Category),
     Keep,
     Later,
@@ -19,7 +19,7 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
     // Fast path for every new terminal: no lock, no state dir created. `> 2` skips "" and "[]".
     let has = |name: &str| fs::metadata(p.state_dir().join(name)).is_ok_and(|m| m.len() > 2);
     if !has("messages") && !has("pending.json") {
-        return Ok(());
+        return warn_unsorted(p, out);
     }
 
     let pending = {
@@ -31,7 +31,12 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
     }; // unlocked while waiting for the user
 
     for item in pending {
-        let answer = ask(&item, input, out)?;
+        let header = if item.note.is_empty() {
+            format!("bashrc-sort: unsure where this block from ~/{} goes:", item.file)
+        } else {
+            format!("bashrc-sort: {}; this one from ~/{} may be a duplicate:", item.note, item.file)
+        };
+        let answer = ask(&header, &item.text, input, out)?;
         if let Answer::Later = answer {
             continue;
         }
@@ -58,6 +63,17 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
         flush_messages(&mut state, out)?;
         state.save(p)?;
     }
+    warn_unsorted(p, out)
+}
+
+/// One line naming `~/.bashrc.d` files that `tidy` would still sort. A read error here
+/// must not break shell startup, so it just skips the warning.
+fn warn_unsorted(p: &Paths, out: &mut impl Write) -> Result<()> {
+    if let Ok(names) = crate::tidy::unsorted(p)
+        && !names.is_empty()
+    {
+        writeln!(out, "bashrc-sort: not sorted yet in ~/.bashrc.d: {} (run: bashrc-sort tidy)", names.join(", "))?;
+    }
     Ok(())
 }
 
@@ -68,15 +84,11 @@ fn flush_messages(state: &mut State, out: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-/// Shows the block and reads an answer. Empty input or EOF means "ask again next terminal";
+/// Shows the block and reads an answer. Empty input or EOF means "ask again later";
 /// an unknown key is asked once more.
-fn ask(item: &Pending, input: &mut impl BufRead, out: &mut impl Write) -> Result<Answer> {
-    if item.note.is_empty() {
-        writeln!(out, "bashrc-sort: unsure where this block from ~/{} goes:", item.file)?;
-    } else {
-        writeln!(out, "bashrc-sort: {}; this one from ~/{} may be a duplicate:", item.note, item.file)?;
-    }
-    for line in item.text.lines() {
+pub(crate) fn ask(header: &str, text: &str, input: &mut impl BufRead, out: &mut impl Write) -> Result<Answer> {
+    writeln!(out, "{header}")?;
+    for line in text.lines() {
         writeln!(out, "    {line}")?;
     }
     for _ in 0..2 {

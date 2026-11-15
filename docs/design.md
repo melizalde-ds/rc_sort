@@ -33,7 +33,7 @@ default, and the next terminal says what happened.
 
 ## Non-goals
 
-- Reorganizing the files inside `~/.bashrc.d/` (dedup, reordering, rewriting).
+- Reorganizing `~/.bashrc.d/` automatically. (`tidy` does it on request; see below.)
 - Watching `~/.profile`, zsh/fish configs, or any other file.
 - Reloading already-open shells. New terminals pick up the change; open ones use `apply`.
 - Configurable rules, categories, or a config file.
@@ -140,6 +140,23 @@ default, and the next terminal says what happened.
 
 Diff algorithm details, regexes, crate versions, unit file contents, error message
 wording, code layout.
+
+## Tidy (added 2026-11-15)
+
+`bashrc-sort tidy [file-or-dir]` sorts existing files (default: every file in `~/.bashrc.d`
+except the four targets and the hook) with the same rules. Every line counts as added.
+- Plan first, ask about unsure blocks inline, apply only on `y`. Lock held only while writing;
+  a file that changed during the questions is skipped.
+- Leading `[[ $- == *i* ]] || return`: blocks below it are wrapped in `if [[ $- == *i* ]]`
+  so the `return` can't cut off later lines of the merged file. Any other `return`/`exit`
+  outside a function: file left alone (the service also never moves such a block).
+- Emptied files in `~/.bashrc.d` are deleted (symlinks are emptied, not deleted); files
+  elsewhere are emptied. `~/.bashrc`/`~/.bash_profile` are refused (use `once`).
+- The hook prints one line listing files that still have unsorted, un-kept blocks.
+
+Duplicate checks (service and tidy) look across every `~/.bashrc.d` file, not just the
+target: an exact copy anywhere is dropped; a tools block naming a tool that tools.sh or a
+not-yet-sorted file already names is asked about.
 
 ## Testing
 

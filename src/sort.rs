@@ -1,9 +1,13 @@
 use crate::blocks::{split_blocks, Block};
-use crate::classify::{classify, tools_named, Category};
+use crate::classify::{classify, leaves_file, tools_named, Category};
 use crate::diff::added_lines;
 use crate::state::{atomic_write, backup, hash, lock, normalize, read_opt, Paths, Pending, State, WATCHED};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::HashSet;
+use std::fs;
+
+/// The shell hook, installed into `~/.bashrc.d/`. Never sorted.
+pub const HOOK: &str = "zz-bashrc-sort.sh";
 
 /// One pass over both watched files: move sure blocks, record unsure ones as pending.
 pub fn run_once(p: &Paths) -> Result<()> {
@@ -24,19 +28,18 @@ pub fn run_once(p: &Paths) -> Result<()> {
                 state.pending.push(pending(file, b, String::new()));
                 continue;
             };
-            let target = read_opt(&p.rc_dir().join(cat.file_name()))?.unwrap_or_default();
-            if cat == Category::Tools && !contains_block(&target, &b.text) {
-                let ours = tools_named(&target);
-                if let Some(tool) = tools_named(&b.text).into_iter().find(|t| ours.contains(t)) {
-                    let note = format!("{} already has a {tool} block", cat.file_name());
-                    state.pending.push(pending(file, b, note));
-                    continue;
-                }
+            let files = rc_files(p)?;
+            if cat == Category::Tools && dup_in(&files, &b.text, None).is_none()
+                && let Some((other, tool)) = tool_clash(&files, &b.text, None)
+            {
+                let note = format!("{other} already has a {tool} block");
+                state.pending.push(pending(file, b, note));
+                continue;
             }
             if done.is_empty() {
                 backup(p, file, &current)?;
             }
-            state.messages.push(place(p, file, b, cat)?);
+            state.messages.push(place(p, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
             done.push(b);
         }
         if !done.is_empty() {
@@ -51,9 +54,11 @@ pub fn run_once(p: &Paths) -> Result<()> {
 /// (moving it would break both files). Caller holds the lock.
 pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Category) -> Result<bool> {
     let Some((current, blocks)) = scan(p, file)? else { return Ok(false) };
-    let Some(b) = blocks.iter().find(|b| b.balanced && hash(&b.text) == h) else { return Ok(false) };
+    let Some(b) = blocks.iter().find(|b| b.balanced && !leaves_file(b) && hash(&b.text) == h) else {
+        return Ok(false);
+    };
     backup(p, file, &current)?;
-    state.messages.push(place(p, file, b, cat)?);
+    state.messages.push(place(p, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
     rewrite(p, file, &current, &[b])?;
     Ok(true)
 }
@@ -91,27 +96,87 @@ fn scan(p: &Paths, file: &str) -> Result<Option<(String, Vec<Block>)>> {
     Ok(Some((current, blocks)))
 }
 
-/// Appends the block to its target unless it's already there. Returns the message.
-fn place(p: &Paths, file: &str, b: &Block, cat: Category) -> Result<String> {
+/// Appends `text` to its target unless some `~/.bashrc.d` file (other than `skip`) already
+/// has it. `from` is the source as shown to the user. Returns the message.
+pub(crate) fn place(
+    p: &Paths,
+    from: &str,
+    name: &str,
+    text: &str,
+    cat: Category,
+    skip: Option<&str>,
+) -> Result<String> {
+    if let Some(other) = dup_in(&rc_files(p)?, text, skip) {
+        return Ok(format!("bashrc-sort: removed duplicate {name} block from {from} (already in {other})"));
+    }
     let path = p.rc_dir().join(cat.file_name());
     let mut target = read_opt(&path)?.unwrap_or_default();
-    let name = block_name(b);
-    if contains_block(&target, &b.text) {
-        return Ok(format!(
-            "bashrc-sort: removed duplicate {name} block from ~/{file} (already in {})",
-            cat.file_name()
-        ));
-    }
     if !target.is_empty() {
         if !target.ends_with('\n') {
             target.push('\n');
         }
         target.push('\n');
     }
-    target.push_str(&normalize(&b.text));
+    target.push_str(&normalize(text));
     target.push('\n');
     atomic_write(&path, &target)?;
-    Ok(format!("bashrc-sort: moved {name} block from ~/{file} to {}", cat.file_name()))
+    Ok(format!("bashrc-sort: moved {name} block from {from} to {}", cat.file_name()))
+}
+
+/// `(name, text)` of every file in `~/.bashrc.d` the sorter reads, sorted by name: regular,
+/// UTF-8 files, not the hook or our temp files.
+pub(crate) fn rc_files(p: &Paths) -> Result<Vec<(String, String)>> {
+    let dir = p.rc_dir();
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
+    };
+    let mut out = Vec::new();
+    for e in entries {
+        let e = e.with_context(|| format!("reading {}", dir.display()))?;
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name == HOOK || name.ends_with(".bashrc-sort.tmp") || !e.path().is_file() {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(e.path()) {
+            out.push((name, text));
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// One of aliases.sh, exports.sh, functions.sh, tools.sh.
+pub fn is_category_file(name: &str) -> bool {
+    Category::ALL.iter().any(|c| c.file_name() == name)
+}
+
+/// The first file (other than `skip`) that already holds `text` as whole lines.
+pub(crate) fn dup_in<'a>(files: &'a [(String, String)], text: &str, skip: Option<&str>) -> Option<&'a str> {
+    files
+        .iter()
+        .find(|(n, t)| Some(n.as_str()) != skip && contains_block(t, text))
+        .map(|(n, _)| n.as_str())
+}
+
+/// A known tool `text` sets up that tools.sh or a not-yet-sorted file (other than `skip`)
+/// already names. aliases/exports/functions.sh are left out: `alias cb="cargo build"` is
+/// not a cargo setup.
+pub(crate) fn tool_clash(
+    files: &[(String, String)],
+    text: &str,
+    skip: Option<&str>,
+) -> Option<(String, &'static str)> {
+    let ours = tools_named(text);
+    files
+        .iter()
+        .filter(|(n, _)| Some(n.as_str()) != skip)
+        .filter(|(n, _)| n == Category::Tools.file_name() || !is_category_file(n))
+        .find_map(|(n, t)| {
+            let theirs = tools_named(t);
+            ours.iter().find(|x| theirs.contains(x)).map(|&tool| (n.clone(), tool))
+        })
 }
 
 /// True if `block` appears in `target` as whole lines (ignoring trailing spaces).
@@ -122,7 +187,7 @@ fn contains_block(target: &str, block: &str) -> bool {
 /// `current` without the given blocks. Blank lines directly above a block go too when the
 /// block is followed by a blank line or the end of the file, so no stray blanks pile up
 /// (the blank may match a default line, so it can't be judged by "added").
-fn without(current: &str, blocks: &[&Block]) -> String {
+pub(crate) fn without(current: &str, blocks: &[&Block]) -> String {
     let lines: Vec<&str> = current.lines().collect();
     let blank = |i: usize| lines.get(i).is_none_or(|l| l.trim().is_empty());
     let mut drop: HashSet<usize> = HashSet::new();
