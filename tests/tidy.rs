@@ -117,13 +117,22 @@ fn exact_duplicate_in_another_file_is_dropped() {
 #[test]
 fn same_tool_elsewhere_is_asked_and_can_be_kept() {
     let p = setup("clash", &[("tools.sh", ". \"$HOME/.cargo/env\"\n"), ("00-paths.sh", PATHS)]);
-    let out = tidy(&p, None, "k\n");
+    let out = tidy(&p, None, "k\ny\n");
     assert!(out.contains("tools.sh already has a cargo block"), "{out}");
-    assert!(out.contains("nothing to tidy"));
+    assert!(out.contains("kept 1 block(s) in place"), "{out}");
     assert_eq!(rc(&p, "00-paths.sh").unwrap(), PATHS);
     assert!(State::load(&p).unwrap().kept.contains(&hash(PATHS)));
     assert!(unsorted(&p).unwrap().is_empty(), "kept blocks stop the warning");
     assert!(!tidy(&p, None, "").contains("cargo"), "not asked again");
+}
+
+#[test]
+fn declined_keep_is_not_saved() {
+    let p = setup("nokeep", &[("tools.sh", ". \"$HOME/.cargo/env\"\n"), ("00-paths.sh", PATHS)]);
+    let out = tidy(&p, None, "k\nn\n");
+    assert!(out.contains("nothing changed"), "{out}");
+    assert!(State::load(&p).unwrap().kept.is_empty(), "keep is saved only on apply");
+    assert!(tidy(&p, None, "").contains("cargo"), "asked again next time");
 }
 
 #[test]

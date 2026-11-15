@@ -16,12 +16,18 @@ fn main() -> Result<()> {
         Some("install") => run_install(&p, &mut std::io::stdout()),
         Some("uninstall") => run_uninstall(&p, &mut std::io::stdout()),
         Some("tidy") => {
-            let target = std::env::args_os().nth(2).map(PathBuf::from);
+            let (flags, rest): (Vec<_>, Vec<_>) = std::env::args_os().skip(2).partition(|a| a == "--plain");
+            let target = rest.into_iter().next().map(PathBuf::from);
+            #[cfg(feature = "tui")]
+            if flags.is_empty() && bashrc_sort::tidy_tui::usable() {
+                return bashrc_sort::tidy_tui::run(&p, target, &mut std::io::stdout());
+            }
+            let _ = flags;
             run_tidy(&p, target, &mut std::io::stdin().lock(), &mut std::io::stdout())
         }
         Some("prompt") => run_prompt(&p, &mut std::io::stdin().lock(), &mut std::io::stdout()),
         _ => {
-            eprintln!("usage: bashrc-sort install|uninstall|tidy [file-or-dir]|once|watch|prompt");
+            eprintln!("usage: bashrc-sort install|uninstall|tidy [--plain] [file-or-dir]|once|watch|prompt");
             std::process::exit(2);
         }
     }

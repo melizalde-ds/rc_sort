@@ -9,3 +9,9 @@ notify-debouncer-mini = "0.7.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 similar = "3.2.1"
+ratatui = { version = "0.30.2", optional = true, default-features = false, features = ["crossterm"] }
+
+[features]
+default = ["tui"]
+# `bashrc-sort tidy` opens a full-screen picker in a terminal; without it, tidy is always plain.
+tui = ["dep:ratatui"]

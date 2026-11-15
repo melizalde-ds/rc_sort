@@ -146,8 +146,22 @@ wording, code layout.
 
 `bashrc-sort tidy [file-or-dir]` sorts existing files (default: every file in `~/.bashrc.d`
 except the four targets and the hook) with the same rules. Every line counts as added.
-- Plan first, ask about unsure blocks inline, apply only on `y`. Lock held only while writing;
-  a file that changed during the questions is skipped.
+- Plan first, then decide, then apply only on `y`. Lock held only while writing; a file that
+  changed during the questions is skipped. "Keep in place" is saved on apply too, so declining
+  changes nothing (changed 2026-11-15).
+- Two front ends over the same plan and apply (added 2026-11-15, user request):
+  - **TUI** when stdin and stdout are terminals, `TERM` isn't `dumb` and the window is at least
+    60×12 (cargo feature `tui`, on by default; ratatui). Drawn inline below the prompt, not full
+    screen: fits the content, at most 60% of the terminal (never under 10 lines), then the list
+    scrolls. Blocks are grouped under their source file with ✓ sure / ? unsure / ⊘ can't move;
+    any choice can be changed in any order (`t/e/a/f/k/u`). Preview (hidden under 90 columns,
+    `p` toggles) shows the end of the target file and the block as `+` lines. `y` asks
+    `Apply? … y/N` in the footer; `q`/Esc/Ctrl-C quit without changes; `?` lists the keys.
+    On close the box is erased and a short summary stays (◇ title, │ moves / drops / kept /
+    skipped files, └ done or nothing changed). Not opened when there is nothing to sort.
+  - **Plain** otherwise or with `--plain`: prints the plan, asks about unsure blocks in order
+    (sure blocks can't be changed), then `Apply? [y/N]`.
+  - Half of an if/loop can't be moved in either. The shell hook (`prompt`) stays plain text.
 - Leading `[[ $- == *i* ]] || return`: blocks below it are wrapped in `if [[ $- == *i* ]]`
   so the `return` can't cut off later lines of the merged file. Any other `return`/`exit`
   outside a function: file left alone (the service also never moves such a block).
