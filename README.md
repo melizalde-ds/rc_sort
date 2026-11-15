@@ -28,6 +28,5 @@ bashrc-sort install   # writes the hook + systemd unit, starts the service
   `if [[ $- == *i* ]]; then … fi`. New terminals list files that still need sorting.
 - Logs: `journalctl --user -u bashrc-sort`.
 - Backups of every rewrite: `~/.local/state/bashrc-sort/backups/`.
-- Uninstall: `systemctl --user disable --now bashrc-sort`, then delete
-  `~/.config/systemd/user/bashrc-sort.service`, `~/.bashrc.d/zz-bashrc-sort.sh`
-  and `~/.cargo/bin/bashrc-sort`.
+- Uninstall: `bashrc-sort uninstall` stops and disables the service and removes the hook
+  and unit. Your `~/.bashrc.d` files and the backups stay. Then `cargo uninstall bashrc-sort`.

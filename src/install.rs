@@ -1,5 +1,6 @@
 //! `bashrc-sort install`: writes the shell hook and the systemd user unit, then (re)starts
 //! the service. Safe to run again after `cargo install` of a new version.
+//! `bashrc-sort uninstall` undoes that. Your sorted files and the backups stay.
 
 use crate::sort::HOOK;
 use crate::state::{atomic_write, read_opt, Paths};
@@ -56,6 +57,38 @@ pub fn run_install(p: &Paths, out: &mut impl Write) -> Result<()> {
         writeln!(out, "bashrc-sort: not sorted yet in ~/.bashrc.d: {}; run: bashrc-sort tidy", names.join(", "))?;
     }
     writeln!(out, "bashrc-sort: open a new terminal to see its messages")?;
+    Ok(())
+}
+
+/// Removes the hook and the unit if present. Returns one line per file removed.
+pub fn uninstall_files(p: &Paths) -> Result<Vec<String>> {
+    let mut done = Vec::new();
+    for path in [p.rc_dir().join(HOOK), unit_path(p)] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => done.push(format!("bashrc-sort: removed {}", path.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| format!("removing {}", path.display())),
+        }
+    }
+    Ok(done)
+}
+
+pub fn run_uninstall(p: &Paths, out: &mut impl Write) -> Result<()> {
+    // Stop first, while systemd still knows the unit; skip if it was never installed.
+    if unit_path(p).exists() {
+        systemctl(&["disable", "--now", UNIT])?;
+    }
+    let removed = uninstall_files(p)?;
+    systemctl(&["daemon-reload"])?;
+    if removed.is_empty() {
+        writeln!(out, "bashrc-sort: service and hook were not installed")?;
+    }
+    for line in removed {
+        writeln!(out, "{line}")?;
+    }
+    writeln!(out, "bashrc-sort: your ~/.bashrc.d files are untouched")?;
+    writeln!(out, "bashrc-sort: backups kept in {}", p.state_dir().join("backups").display())?;
+    writeln!(out, "bashrc-sort: to remove the binary too: cargo uninstall bashrc-sort")?;
     Ok(())
 }
 

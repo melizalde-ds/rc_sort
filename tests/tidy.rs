@@ -226,3 +226,15 @@ fn install_writes_hook_and_unit_once() {
     assert!(install_files(&p).unwrap().is_empty(), "second run changes nothing");
     assert!(unsorted(&p).unwrap().is_empty(), "the hook itself is never 'unsorted'");
 }
+
+#[test]
+fn uninstall_removes_only_hook_and_unit() {
+    use bashrc_sort::install::{install_files, uninstall_files, unit_path};
+    let p = setup("uninstall", &[("tools.sh", NODE)]);
+    install_files(&p).unwrap();
+    assert_eq!(uninstall_files(&p).unwrap().len(), 2);
+    assert_eq!(rc(&p, "zz-bashrc-sort.sh"), None);
+    assert!(!unit_path(&p).exists());
+    assert_eq!(rc(&p, "tools.sh").unwrap(), NODE, "sorted files stay");
+    assert!(uninstall_files(&p).unwrap().is_empty(), "second run is a no-op");
+}
