@@ -26,10 +26,44 @@ use std::path::PathBuf;
 
 /// Lines of the target file shown above the block in the preview.
 const TAIL: usize = 3;
-/// Columns a target badge takes (` FUNCTIONS `).
-const BADGE_W: usize = 11;
+/// Columns a target badge takes (`[ FUNCTIONS ]`).
+const BADGE_W: usize = 13;
 /// Below this width the preview starts hidden (`p` shows it).
 const WIDE: u16 = 90;
+
+
+/// The whole palette, by meaning. Only the terminal's named ANSI colors, so its theme
+/// (light or dark) picks the shades; no background colors and no black/white text, which
+/// break on themes we can't predict; and every color comes with an icon or a word, so
+/// nothing depends on color alone.
+mod palette {
+    use ratatui::style::{Color, Style};
+
+    /// Hints, file outcomes, the target file's tail, LATER.
+    pub fn muted() -> Style {
+        Style::new().dim()
+    }
+    /// Title, key letters, category badges.
+    pub fn accent() -> Style {
+        Style::new().fg(Color::Cyan)
+    }
+    /// ✓ sure, `+` lines, the summary's ◇.
+    pub fn good() -> Style {
+        Style::new().fg(Color::Green)
+    }
+    /// ? unsure, • changed, "N unsure left", messages.
+    pub fn attention() -> Style {
+        Style::new().fg(Color::Yellow)
+    }
+    /// ⊘ can't move, REMOVE, a file that gets deleted.
+    pub fn danger() -> Style {
+        Style::new().fg(Color::Red)
+    }
+    /// The selected row: the theme's own colors swapped, readable in any theme.
+    pub fn selected() -> Style {
+        Style::new().reversed()
+    }
+}
 /// First words that get bold in the preview.
 const SHELL_WORDS: [&str; 18] = [
     "export", "alias", "function", "eval", "source", ".", "if", "then", "elif", "else", "fi", "for", "while",
@@ -389,28 +423,23 @@ impl App {
     }
 }
 
-/// Badge text and (text, background) colors for a choice.
-fn badge(act: &Act) -> (&'static str, Color, Color) {
+/// Badge text and style for a choice: categories share the accent; color only marks status.
+fn badge(act: &Act) -> (&'static str, Style) {
     match act {
-        Act::Move(Category::Tools) => ("TOOLS", Color::White, Color::Blue),
-        Act::Move(Category::Exports) => ("EXPORTS", Color::White, Color::Magenta),
-        Act::Move(Category::Aliases) => ("ALIASES", Color::Black, Color::Green),
-        Act::Move(Category::Functions) => ("FUNCTIONS", Color::Black, Color::Cyan),
-        Act::Keep => ("KEEP", Color::Black, Color::White),
-        Act::Leave => ("LATER", Color::White, Color::DarkGray),
-        Act::Dup(_) => ("REMOVE", Color::Black, Color::Yellow),
+        Act::Move(Category::Tools) => ("TOOLS", palette::accent().bold()),
+        Act::Move(Category::Exports) => ("EXPORTS", palette::accent().bold()),
+        Act::Move(Category::Aliases) => ("ALIASES", palette::accent().bold()),
+        Act::Move(Category::Functions) => ("FUNCTIONS", palette::accent().bold()),
+        Act::Keep => ("KEEP", Style::new().bold()),
+        Act::Leave => ("LATER", palette::muted()),
+        Act::Dup(_) => ("REMOVE", palette::danger().bold()),
     }
 }
 
-/// A fixed-width badge (`BADGE_W` columns) so the targets line up. Without colors the
-/// background can't mark it, so it gets brackets instead.
-fn badge_span(act: &Act, color: bool) -> Span<'static> {
-    let (text, fg, bg) = badge(act);
-    if color {
-        Span::styled(format!(" {text:<9} "), Style::new().fg(fg).bg(bg).bold())
-    } else {
-        Span::raw(format!("[{text:<9}]")).bold()
-    }
+/// A fixed-width badge (`BADGE_W` columns, `[ FUNCTIONS ]`) so the targets line up.
+fn badge_span(act: &Act) -> Span<'static> {
+    let (text, style) = badge(act);
+    Span::styled(format!("[ {text:<9} ]"), style)
 }
 
 /// The choice in words, for messages: `tools`, `later`, `keep`, `remove`.
@@ -432,21 +461,21 @@ fn file_name(shown: &str) -> &str {
 }
 
 /// `✓• name ………  TOOLS `, padded so the badges line up at the right edge.
-fn item_line(item: &Item, width: usize, g: &Glyphs, color: bool) -> Line<'static> {
+fn item_line(item: &Item, width: usize, g: &Glyphs) -> Line<'static> {
     let (icon, icon_style) = if !item.block.balanced {
-        (g.blocked, Style::new().fg(Color::Red))
+        (g.blocked, palette::danger())
     } else if item.note.is_some() {
-        (g.unsure, Style::new().fg(Color::Yellow))
+        (g.unsure, palette::attention())
     } else {
-        (g.sure, Style::new().fg(Color::Green))
+        (g.sure, palette::good())
     };
     let changed = if item.act != item.suggested { g.changed } else { " " };
     let name_w = width.saturating_sub(BADGE_W + 4).max(4);
     Line::from(vec![
         Span::styled(icon, icon_style),
-        Span::styled(changed, Style::new().fg(Color::Yellow)),
+        Span::styled(changed, palette::attention()),
         Span::raw(format!(" {} ", truncate(&item.name, name_w, g.more))),
-        badge_span(&item.act, color),
+        badge_span(&item.act),
     ])
 }
 
@@ -455,16 +484,18 @@ fn heading(plan: &Plan, si: usize, g: &Glyphs) -> Line<'static> {
     let src = &plan.srcs[si];
     let (_, delete) = plan.leftover(si);
     let left = plan.remaining(si);
-    let mut outcome = if delete {
-        format!("  {} deleted (empty)", g.arrow)
+    let mut spans = vec![Span::styled(file_name(&src.shown).to_string(), Style::new().bold())];
+    if delete {
+        spans.push(Span::styled(format!("  {} deleted (empty)", g.arrow), palette::danger()));
     } else {
-        format!("  {} keeps {left} block{}", g.dot, if left == 1 { "" } else { "s" })
-    };
+        let s = if left == 1 { "" } else { "s" };
+        spans.push(Span::styled(format!("  {} keeps {left} block{s}", g.dot), palette::muted()));
+    }
     let moving = plan.items.iter().any(|i| i.src == si && matches!(i.act, Act::Move(_)));
     if src.guarded() && moving {
-        outcome.push_str(&format!(" {} interactive only", g.dot));
+        spans.push(Span::styled(format!(" {} interactive only", g.dot), palette::muted()));
     }
-    Line::from(vec![Span::raw(file_name(&src.shown).to_string()).bold(), Span::raw(outcome).dim()])
+    Line::from(spans)
 }
 
 /// One shell line for the preview: comments dimmed, a leading keyword in bold.
@@ -503,14 +534,14 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
     let open = count(undecided);
     let d = g.dot;
     let mut title = vec![
-        Span::raw(" bashrc-sort tidy").bold(),
-        Span::raw(format!(" {d} {moves} move {d} {keeps} keep {d} {drops} remove")).dim(),
+        Span::styled(" bashrc-sort tidy", palette::accent().bold()),
+        Span::styled(format!(" {d} {moves} move {d} {keeps} keep {d} {drops} remove"), palette::muted()),
     ];
     if open > 0 {
-        title.push(Span::raw(format!(" {d} {open} unsure left")).fg(Color::Yellow));
+        title.push(Span::styled(format!(" {d} {open} unsure left"), palette::attention()));
     }
     f.render_widget(Paragraph::new(Line::from(title)), head);
-    f.render_widget(Line::from("? keys ").dim().right_aligned(), head);
+    f.render_widget(Line::styled("? keys ", palette::muted()).right_aligned(), head);
 
     let (left, right) = if app.show_preview(area.width >= WIDE) {
         let [l, r] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
@@ -525,14 +556,14 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
         .iter()
         .map(|r| match r {
             Row::File(si) => ListItem::new(heading(plan, *si, g)),
-            Row::Item(i) => ListItem::new(item_line(&plan.items[*i], width, g, app.color)),
+            Row::Item(i) => ListItem::new(item_line(&plan.items[*i], width, g)),
         })
         .collect();
     let list = List::new(items)
         .block(bordered())
         .highlight_symbol(g.select)
         .highlight_spacing(HighlightSpacing::Always)
-        .highlight_style(Style::new().bold());
+        .highlight_style(palette::selected());
     {
         let mut state = app.list.borrow_mut();
         state.select(rows.iter().position(|r| *r == Row::Item(app.sel)));
@@ -568,31 +599,30 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
         ("l", Act::Leave),
     ];
     for (i, (k, act)) in choices.iter().enumerate() {
-        let (_, _, bg) = badge(act);
-        keys.push(Span::raw(*k).bold());
-        keys.push(Span::raw(format!(" {}", word(act))).fg(bg));
+        keys.push(Span::styled(*k, palette::accent().bold()));
+        keys.push(Span::styled(format!(" {}", word(act)), palette::muted()));
         keys.push(Span::raw(if i == 3 { "   " } else { "  " }));
     }
-    keys.extend([Span::raw("r").bold(), Span::raw(" reset").dim()]);
+    keys.extend([Span::styled("r", palette::accent().bold()), Span::styled(" reset", palette::muted())]);
     // Line 2: the confirm question, a message, or how to move around.
     let second = if app.confirm {
         Line::from(vec![
-            Span::raw(" Apply? ").bold().fg(Color::Yellow),
+            Span::styled(" Apply? ", palette::attention().bold()),
             Span::raw(format!("{moves} move {d} {keeps} keep {d} {drops} remove   ")),
             Span::raw("y/N").bold(),
         ])
     } else if !app.status.is_empty() {
-        Line::from(format!(" {}", app.status)).fg(Color::Yellow)
+        Line::styled(format!(" {}", app.status), palette::attention())
     } else {
         let mut nav = vec![Span::raw(" ")];
         for (i, (k, what)) in
             [("Tab", "next unsure"), (g.updown, "select"), ("y", "apply"), ("q", "quit"), ("?", "all keys")].iter().enumerate()
         {
             if i > 0 {
-                nav.push(Span::raw(format!(" {d} ")).dim());
+                nav.push(Span::styled(format!(" {d} "), palette::muted()));
             }
-            nav.push(Span::raw(*k).bold());
-            nav.push(Span::raw(format!(" {what}")).dim());
+            nav.push(Span::styled(*k, palette::accent().bold()));
+            nav.push(Span::styled(format!(" {what}"), palette::muted()));
         }
         Line::from(nav)
     };
@@ -621,16 +651,16 @@ fn preview(plan: &Plan, sel: usize, g: &Glyphs) -> (String, Vec<Line<'static>>) 
     let d = g.dot;
     let mut lines = Vec::new();
     if !item.block.balanced {
-        lines.push(Line::from("half of an if/loop: it can't be moved").fg(Color::Red));
+        lines.push(Line::styled("half of an if/loop: it can't be moved", palette::danger()));
     }
     match item.note.as_deref() {
-        Some("") => lines.push(Line::from("unsure: no rule matched").fg(Color::Yellow)),
-        Some(why) => lines.push(Line::from(format!("unsure: {why}")).fg(Color::Yellow)),
+        Some("") => lines.push(Line::styled("unsure: no rule matched", palette::attention())),
+        Some(why) => lines.push(Line::styled(format!("unsure: {why}"), palette::attention())),
         None => {}
     }
     if item.act != item.suggested {
         let was = word(&item.suggested);
-        lines.push(Line::from(format!("changed by you (suggested: {was}; r resets)")).fg(Color::Yellow));
+        lines.push(Line::styled(format!("changed by you (suggested: {was}; r resets)"), palette::attention()));
     }
     if !lines.is_empty() {
         lines.push(Line::default());
@@ -642,15 +672,15 @@ fn preview(plan: &Plan, sel: usize, g: &Glyphs) -> (String, Vec<Line<'static>>) 
             if let Some(t) = target {
                 let tail: Vec<&str> = t.lines().collect();
                 for l in &tail[tail.len().saturating_sub(TAIL)..] {
-                    lines.push(shell_line("  ", l, Style::new().dim()));
+                    lines.push(shell_line("  ", l, palette::muted()));
                 }
             }
-            let green = Style::new().fg(Color::Green);
+            let green = palette::good();
             lines.extend(item.text.lines().map(|l| shell_line("+ ", l, green)));
             format!(" {name} ({}) ", if target.is_some() { "end" } else { "new" })
         }
         Act::Dup(other) => {
-            lines.extend(item.block.text.lines().map(|l| shell_line("= ", l, Style::new().dim())));
+            lines.extend(item.block.text.lines().map(|l| shell_line("= ", l, palette::muted())));
             format!(" remove {d} exact copy already in {other} ")
         }
         Act::Keep | Act::Leave => {
@@ -911,7 +941,7 @@ mod tests {
         let mut app = App::default();
         let s = screen(&app, &plan, 110, 10);
         for want in ["1 move · 0 keep · 0 remove · 1 unsure left", "30-x.sh  · keeps 1 block", "▸ ✓  alias g=git",
-                     " ALIASES   ", "?  ssh-agent", " LATER     ", "aliases.sh (new)", "+ alias g=git", "t tools  e exports  a aliases  f functions   k keep  l later  r reset", "Tab next unsure · ↑↓ select · y apply"] {
+                     "[ ALIASES   ]", "?  ssh-agent", "[ LATER     ]", "aliases.sh (new)", "+ alias g=git", "t tools  e exports  a aliases  f functions   k keep  l later  r reset", "Tab next unsure · ↑↓ select · y apply"] {
             assert!(s.contains(want), "missing {want:?} in {s}");
         }
         assert!(!screen(&app, &plan, 70, 10).contains("(new)"), "narrow: preview hidden");
@@ -961,8 +991,28 @@ mod tests {
         let buf = term.backend().buffer();
         assert!(buf.content().iter().all(|c| c.fg == Color::Reset && c.bg == Color::Reset));
         let s: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(s.contains("> v  alias g=git") && s.contains("[ALIASES  ]") && s.contains("+---"), "{s}");
+        assert!(s.contains("> v  alias g=git") && s.contains("[ ALIASES   ]") && s.contains("+---"), "{s}");
         assert!(s.is_ascii(), "{s}");
+    }
+
+    #[test]
+    fn palette_rules_hold_on_every_cell() {
+        let p = setup("palette");
+        fs::write(p.rc_dir().join("60-dup.sh"), "alias g=git\n").unwrap();
+        fs::write(p.rc_dir().join("aliases.sh"), "alias g=git\n").unwrap();
+        let plan = plan(&p, None, &mut Vec::new()).unwrap();
+        let mut app = App::default();
+        let mut cells = Vec::new();
+        for (confirm, help) in [(false, false), (true, false), (false, true)] {
+            app.confirm = confirm;
+            app.help = help;
+            cells.extend(terminal(&app, &plan, 110, 12).backend().buffer().content().to_vec());
+        }
+        let named = [Color::Reset, Color::Cyan, Color::Green, Color::Yellow, Color::Red];
+        for c in &cells {
+            assert_eq!(c.bg, Color::Reset, "no background colors: {c:?}");
+            assert!(named.contains(&c.fg), "only palette colors (no black/white): {c:?}");
+        }
     }
 
     #[test]

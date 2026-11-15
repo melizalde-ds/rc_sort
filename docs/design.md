@@ -156,8 +156,8 @@ except the four targets and the hook) with the same rules. Every line counts as 
     scrolls. Blocks are grouped under their source file, whose heading says what the file
     becomes (`→ deleted (empty)`, `· keeps N blocks`, `· interactive only`). Rows show ✓ sure /
     ? unsure / ⊘ can't move, and • when you changed the suggestion (`r` resets it). Targets are
-    fixed-width colored badges (TOOLS / EXPORTS / ALIASES / FUNCTIONS, KEEP, LATER for undecided,
-    REMOVE for an exact duplicate; bracketed without colors). Any choice can be changed in any
+    fixed-width badges: `[ TOOLS ]` / EXPORTS / ALIASES / FUNCTIONS, KEEP, LATER for undecided,
+    REMOVE for an exact duplicate. Any choice can be changed in any
     order (`t/e/a/f`, `k` keep, `l` later); a two-line footer spells out each key; `Tab`/`Shift-Tab` jump between undecided
     unsure blocks; mouse click selects, wheel moves. The header counts moves / keeps / drops /
     unsure left. Preview (hidden under 90 columns, `p` toggles) shows the end of the target
@@ -168,6 +168,12 @@ except the four targets and the hook) with the same rules. Every line counts as 
     nothing changed). Not opened when there is nothing to sort.
   - On a resize the visible screen is scrolled into history and the box starts again at the
     top: terminals re-wrap an inline box differently, so redrawing in place leaves copies.
+  - Palette (added 2026-11-15, after looking at CLI/TUI color guidance): colors by meaning
+    only, using the terminal's named ANSI colors so its theme (light or dark) picks the shades.
+    accent = cyan (title, key letters, all four category badges), good = green (✓, `+` lines),
+    attention = yellow (?, •, unsure left, messages), danger = red (⊘, REMOVE, deleted files),
+    muted = dim, selection = reversed. No background colors and no black/white text; every
+    color comes with an icon or a word. A unit test checks every drawn cell against this.
   - `NO_COLOR` drops colors (bold/dim stay); a non-UTF-8 locale (LC_ALL / LC_CTYPE / LANG)
     gets ASCII icons and borders.
   - **Plain** otherwise or with `--plain`: prints the plan, asks about unsure blocks in order
