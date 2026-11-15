@@ -24,15 +24,10 @@ use std::cell::{Cell, RefCell};
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
-const KEYS: [&str; 5] = [
-    " ↑ ↓  PgUp PgDn  Home End  mouse   select     Tab / Shift-Tab   next / previous unsure",
-    " t e a f   move to tools / exports / aliases / functions",
-    " k  keep in place, never asked again     u  leave for now     r  back to the suggestion",
-    " p  show/hide preview     y  apply     q Esc  quit",
-    " ✓ sure   ? unsure   ⊘ can't move   • changed by you",
-];
 /// Lines of the target file shown above the block in the preview.
 const TAIL: usize = 3;
+/// Columns a target badge takes (` FUNCTIONS `).
+const BADGE_W: usize = 11;
 /// Below this width the preview starts hidden (`p` shows it).
 const WIDE: u16 = 90;
 /// First words that get bold in the preview.
@@ -49,9 +44,9 @@ pub(crate) struct Glyphs {
     blocked: &'static str,
     changed: &'static str,
     arrow: &'static str,
-    drop: &'static str,
     dot: &'static str,
     select: &'static str,
+    updown: &'static str,
     more: char,
     border: border::Set<'static>,
     title: &'static str,
@@ -65,9 +60,9 @@ pub(crate) const UNICODE: Glyphs = Glyphs {
     blocked: "⊘",
     changed: "•",
     arrow: "→",
-    drop: "✗",
     dot: "·",
     select: "▸ ",
+    updown: "↑↓",
     more: '…',
     border: border::ROUNDED,
     title: "◇",
@@ -81,9 +76,9 @@ pub(crate) const ASCII: Glyphs = Glyphs {
     blocked: "x",
     changed: "*",
     arrow: "->",
-    drop: "x",
     dot: "-",
     select: "> ",
+    updown: "up/down",
     more: '~',
     border: border::Set {
         top_left: "+",
@@ -109,6 +104,18 @@ fn utf8_locale() -> bool {
             let v = v.to_ascii_lowercase();
             v.contains("utf-8") || v.contains("utf8")
         })
+}
+
+
+/// The `?` key list, with this terminal's symbols.
+fn keys_help(g: &Glyphs) -> Vec<String> {
+    vec![
+        format!(" {}  PgUp PgDn  Home End  mouse   select     Tab / Shift-Tab   next / previous unsure", g.updown),
+        " t e a f   move to tools / exports / aliases / functions".into(),
+        " k  keep: stays here, never asked again   l  later: decide next time   r  back to the suggestion".into(),
+        " p  show/hide preview     y  apply     q Esc  quit".into(),
+        format!(" {} sure   {} unsure   {} can't move   {} changed by you", g.sure, g.unsure, g.blocked, g.changed),
+    ]
 }
 
 /// True when both ends are a real terminal big enough to draw in; otherwise tidy stays plain.
@@ -199,11 +206,11 @@ pub fn run(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<(
     Ok(())
 }
 
-/// Box height: header, footer, borders and one row per file and block; at most 60% of the
+/// Box height: header, two footer lines, borders and one row per file and block; at most 60% of the
 /// terminal (but never under 10 lines), the list scrolls past that.
 pub(crate) fn height(plan: &Plan, term_rows: u16) -> u16 {
     let rows = rows(plan).len() as u16;
-    let want = rows.max(4) + 4;
+    let want = rows.max(4) + 5;
     let cap = (term_rows * 6 / 10).max(10);
     want.min(cap).min(term_rows)
 }
@@ -328,11 +335,12 @@ impl App {
                 if plan.has_changes() {
                     self.confirm = true;
                 } else {
-                    self.status = "nothing to apply: every block is set to leave".into();
+                    self.status = "nothing to apply: every block is set to later".into();
                 }
             }
             KeyCode::Char('k') => plan.items[self.sel].act = Act::Keep,
-            KeyCode::Char('u') => plan.items[self.sel].act = Act::Leave,
+            // `u` was the first key for later; it keeps working.
+            KeyCode::Char('l') | KeyCode::Char('u') => plan.items[self.sel].act = Act::Leave,
             KeyCode::Char('r') => {
                 let item = &mut plan.items[self.sel];
                 item.act = item.suggested.clone();
@@ -381,22 +389,33 @@ impl App {
     }
 }
 
-fn cat_color(cat: Category) -> Color {
-    match cat {
-        Category::Tools => Color::Blue,
-        Category::Exports => Color::Magenta,
-        Category::Aliases => Color::Green,
-        Category::Functions => Color::Cyan,
+/// Badge text and (text, background) colors for a choice.
+fn badge(act: &Act) -> (&'static str, Color, Color) {
+    match act {
+        Act::Move(Category::Tools) => ("TOOLS", Color::White, Color::Blue),
+        Act::Move(Category::Exports) => ("EXPORTS", Color::White, Color::Magenta),
+        Act::Move(Category::Aliases) => ("ALIASES", Color::Black, Color::Green),
+        Act::Move(Category::Functions) => ("FUNCTIONS", Color::Black, Color::Cyan),
+        Act::Keep => ("KEEP", Color::Black, Color::White),
+        Act::Leave => ("LATER", Color::White, Color::DarkGray),
+        Act::Dup(_) => ("REMOVE", Color::Black, Color::Yellow),
     }
 }
 
-fn label(act: &Act, g: &Glyphs) -> (String, Style) {
-    match act {
-        Act::Move(cat) => (format!("{} {}", g.arrow, cat.file_name()), Style::new().fg(cat_color(*cat))),
-        Act::Dup(_) => (format!("{} drop", g.drop), Style::new().fg(Color::Yellow)),
-        Act::Keep => (format!("{} keep", g.dot), Style::new().bold()),
-        Act::Leave => (format!("{} leave", g.dot), Style::new().dim()),
+/// A fixed-width badge (`BADGE_W` columns) so the targets line up. Without colors the
+/// background can't mark it, so it gets brackets instead.
+fn badge_span(act: &Act, color: bool) -> Span<'static> {
+    let (text, fg, bg) = badge(act);
+    if color {
+        Span::styled(format!(" {text:<9} "), Style::new().fg(fg).bg(bg).bold())
+    } else {
+        Span::raw(format!("[{text:<9}]")).bold()
     }
+}
+
+/// The choice in words, for messages: `tools`, `later`, `keep`, `remove`.
+fn word(act: &Act) -> String {
+    badge(act).0.to_ascii_lowercase()
 }
 
 fn truncate(s: &str, w: usize, more: char) -> String {
@@ -412,8 +431,8 @@ fn file_name(shown: &str) -> &str {
     shown.rsplit('/').next().unwrap_or(shown)
 }
 
-/// `✓• name ……… → target`, padded so the targets line up at the right edge.
-fn item_line(item: &Item, width: usize, g: &Glyphs) -> Line<'static> {
+/// `✓• name ………  TOOLS `, padded so the badges line up at the right edge.
+fn item_line(item: &Item, width: usize, g: &Glyphs, color: bool) -> Line<'static> {
     let (icon, icon_style) = if !item.block.balanced {
         (g.blocked, Style::new().fg(Color::Red))
     } else if item.note.is_some() {
@@ -422,13 +441,12 @@ fn item_line(item: &Item, width: usize, g: &Glyphs) -> Line<'static> {
         (g.sure, Style::new().fg(Color::Green))
     };
     let changed = if item.act != item.suggested { g.changed } else { " " };
-    let (dest, dest_style) = label(&item.act, g);
-    let name_w = width.saturating_sub(dest.chars().count() + 4).max(4);
+    let name_w = width.saturating_sub(BADGE_W + 4).max(4);
     Line::from(vec![
         Span::styled(icon, icon_style),
         Span::styled(changed, Style::new().fg(Color::Yellow)),
         Span::raw(format!(" {} ", truncate(&item.name, name_w, g.more))),
-        Span::styled(dest, dest_style),
+        badge_span(&item.act, color),
     ])
 }
 
@@ -473,7 +491,7 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
     let g = &app.g;
     let area = f.area();
     let [head, body, foot] =
-        Layout::vertical([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)]).areas(area);
+        Layout::vertical([Constraint::Length(1), Constraint::Min(3), Constraint::Length(2)]).areas(area);
     app.wide.set(area.width >= WIDE);
     let rows = rows(plan);
     let bordered = || Block::bordered().border_set(g.border);
@@ -486,7 +504,7 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
     let d = g.dot;
     let mut title = vec![
         Span::raw(" bashrc-sort tidy").bold(),
-        Span::raw(format!(" {d} {moves} move {d} {keeps} keep {d} {drops} drop")).dim(),
+        Span::raw(format!(" {d} {moves} move {d} {keeps} keep {d} {drops} remove")).dim(),
     ];
     if open > 0 {
         title.push(Span::raw(format!(" {d} {open} unsure left")).fg(Color::Yellow));
@@ -507,7 +525,7 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
         .iter()
         .map(|r| match r {
             Row::File(si) => ListItem::new(heading(plan, *si, g)),
-            Row::Item(i) => ListItem::new(item_line(&plan.items[*i], width, g)),
+            Row::Item(i) => ListItem::new(item_line(&plan.items[*i], width, g, app.color)),
         })
         .collect();
     let list = List::new(items)
@@ -539,26 +557,52 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
         }
     }
 
-    let footer = if app.confirm {
+    // Line 1: every choice key next to the word it sets, in its badge's color.
+    let mut keys = vec![Span::raw(" ")];
+    let choices = [
+        ("t", Act::Move(Category::Tools)),
+        ("e", Act::Move(Category::Exports)),
+        ("a", Act::Move(Category::Aliases)),
+        ("f", Act::Move(Category::Functions)),
+        ("k", Act::Keep),
+        ("l", Act::Leave),
+    ];
+    for (i, (k, act)) in choices.iter().enumerate() {
+        let (_, _, bg) = badge(act);
+        keys.push(Span::raw(*k).bold());
+        keys.push(Span::raw(format!(" {}", word(act))).fg(bg));
+        keys.push(Span::raw(if i == 3 { "   " } else { "  " }));
+    }
+    keys.extend([Span::raw("r").bold(), Span::raw(" reset").dim()]);
+    // Line 2: the confirm question, a message, or how to move around.
+    let second = if app.confirm {
         Line::from(vec![
             Span::raw(" Apply? ").bold().fg(Color::Yellow),
-            Span::raw(format!("{moves} move {d} {keeps} keep {d} {drops} drop   ")),
+            Span::raw(format!("{moves} move {d} {keeps} keep {d} {drops} remove   ")),
             Span::raw("y/N").bold(),
         ])
     } else if !app.status.is_empty() {
         Line::from(format!(" {}", app.status)).fg(Color::Yellow)
     } else {
-        Line::from(format!(
-            " Tab next unsure {d} t e a f move {d} k keep {d} u leave {d} r reset {d} y apply {d} q quit"
-        ))
-        .dim()
+        let mut nav = vec![Span::raw(" ")];
+        for (i, (k, what)) in
+            [("Tab", "next unsure"), (g.updown, "select"), ("y", "apply"), ("q", "quit"), ("?", "all keys")].iter().enumerate()
+        {
+            if i > 0 {
+                nav.push(Span::raw(format!(" {d} ")).dim());
+            }
+            nav.push(Span::raw(*k).bold());
+            nav.push(Span::raw(format!(" {what}")).dim());
+        }
+        Line::from(nav)
     };
-    f.render_widget(footer, foot);
+    f.render_widget(Paragraph::new(vec![Line::from(keys), second]), foot);
 
     if app.help {
-        let h = (KEYS.len() as u16 + 2).min(body.height);
+        let help = keys_help(g);
+        let h = (help.len() as u16 + 2).min(body.height);
         let area = Rect { height: h, ..body };
-        let keys: Vec<Line> = KEYS.iter().map(|k| Line::from(*k)).collect();
+        let keys: Vec<Line> = help.into_iter().map(Line::from).collect();
         f.render_widget(Clear, area);
         f.render_widget(Paragraph::new(keys).block(bordered().title(" keys · any key closes ")), area);
     }
@@ -585,7 +629,7 @@ fn preview(plan: &Plan, sel: usize, g: &Glyphs) -> (String, Vec<Line<'static>>) 
         None => {}
     }
     if item.act != item.suggested {
-        let (was, _) = label(&item.suggested, g);
+        let was = word(&item.suggested);
         lines.push(Line::from(format!("changed by you (suggested: {was}; r resets)")).fg(Color::Yellow));
     }
     if !lines.is_empty() {
@@ -607,15 +651,15 @@ fn preview(plan: &Plan, sel: usize, g: &Glyphs) -> (String, Vec<Line<'static>>) 
         }
         Act::Dup(other) => {
             lines.extend(item.block.text.lines().map(|l| shell_line("= ", l, Style::new().dim())));
-            format!(" already in {other} {d} dropped on apply ")
+            format!(" remove {d} exact copy already in {other} ")
         }
         Act::Keep | Act::Leave => {
             lines.extend(item.block.text.lines().map(|l| shell_line("  ", l, Style::new())));
             let src = file_name(&plan.srcs[item.src].shown);
             if item.act == Act::Keep {
-                format!(" stays in {src} {d} not asked again ")
+                format!(" keep {d} stays in {src}, never asked again ")
             } else {
-                format!(" stays in {src} for now ")
+                format!(" later {d} stays in {src}, asked again next time ")
             }
         }
     };
@@ -652,7 +696,7 @@ pub(crate) fn summary(plan: &Plan, skipped: Option<&[usize]>, backups: &str, wid
     // Keeps are saved even when their file was skipped.
     let keeps: Vec<String> = plan.items.iter().filter(|i| i.act == Act::Keep).map(|i| i.name.clone()).collect();
     wrap_into(&mut out, g, "", &moves, width);
-    wrap_into(&mut out, g, "dropped: ", &drops, width);
+    wrap_into(&mut out, g, "removed: ", &drops, width);
     wrap_into(&mut out, g, "kept: ", &keeps, width);
     for &si in skipped {
         out.push(format!(
@@ -768,7 +812,7 @@ mod tests {
     fn height_fits_content_up_to_60_percent() {
         let p = setup("height");
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
-        assert_eq!(height(&plan, 50), 8, "3 rows → minimum box");
+        assert_eq!(height(&plan, 50), 9, "3 rows → minimum box");
         let many = (0..60).map(|i| format!("alias a{i}=b\n\n")).collect::<String>();
         fs::write(p.rc_dir().join("30-x.sh"), many).unwrap();
         let plan = super::plan(&p, None, &mut Vec::new()).unwrap();
@@ -866,18 +910,18 @@ mod tests {
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
         let mut app = App::default();
         let s = screen(&app, &plan, 110, 10);
-        for want in ["1 move · 0 keep · 0 drop · 1 unsure left", "30-x.sh  · keeps 1 block", "▸ ✓  alias g=git",
-                     "→ aliases.sh", "?  ssh-agent", "· leave", "aliases.sh (new)", "+ alias g=git", "y apply"] {
+        for want in ["1 move · 0 keep · 0 remove · 1 unsure left", "30-x.sh  · keeps 1 block", "▸ ✓  alias g=git",
+                     " ALIASES   ", "?  ssh-agent", " LATER     ", "aliases.sh (new)", "+ alias g=git", "t tools  e exports  a aliases  f functions   k keep  l later  r reset", "Tab next unsure · ↑↓ select · y apply"] {
             assert!(s.contains(want), "missing {want:?} in {s}");
         }
         assert!(!screen(&app, &plan, 70, 10).contains("(new)"), "narrow: preview hidden");
         app.preview = Some(true);
         assert!(screen(&app, &plan, 70, 10).contains("(new)"), "p shows it anyway");
         app.confirm = true;
-        assert!(screen(&app, &plan, 110, 10).contains("Apply? 1 move · 0 keep · 0 drop"));
+        assert!(screen(&app, &plan, 110, 10).contains("Apply? 1 move · 0 keep · 0 remove"));
         app.confirm = false;
         app.help = true;
-        assert!(screen(&app, &plan, 110, 10).contains("keep in place, never asked again"));
+        assert!(screen(&app, &plan, 110, 10).contains("keep: stays here, never asked again"));
     }
 
     #[test]
@@ -889,7 +933,7 @@ mod tests {
         let s = screen(&app, &plan, 110, 10);
         assert!(s.contains("30-x.sh  → deleted (empty)"), "{s}");
         assert!(s.contains("✓  alias") && s.contains("▸ ?• ssh-agent"), "changed rows are marked: {s}");
-        assert!(s.contains("changed by you (suggested: · leave; r resets)"), "{s}");
+        assert!(s.contains("changed by you (suggested: later; r resets)"), "{s}");
 
         fs::write(p.rc_dir().join("30-x.sh"), "[[ $- == *i* ]] || return\nalias g=git\n").unwrap();
         let plan = super::plan(&p, None, &mut Vec::new()).unwrap();
@@ -917,7 +961,7 @@ mod tests {
         let buf = term.backend().buffer();
         assert!(buf.content().iter().all(|c| c.fg == Color::Reset && c.bg == Color::Reset));
         let s: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(s.contains("> v  alias g=git") && s.contains("-> aliases.sh") && s.contains("+---"), "{s}");
+        assert!(s.contains("> v  alias g=git") && s.contains("[ALIASES  ]") && s.contains("+---"), "{s}");
         assert!(s.is_ascii(), "{s}");
     }
 

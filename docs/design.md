@@ -155,8 +155,10 @@ except the four targets and the hook) with the same rules. Every line counts as 
     screen: fits the content, at most 60% of the terminal (never under 10 lines), then the list
     scrolls. Blocks are grouped under their source file, whose heading says what the file
     becomes (`→ deleted (empty)`, `· keeps N blocks`, `· interactive only`). Rows show ✓ sure /
-    ? unsure / ⊘ can't move, and • when you changed the suggestion (`r` resets it). Any choice
-    can be changed in any order (`t/e/a/f/k/u`); `Tab`/`Shift-Tab` jump between undecided
+    ? unsure / ⊘ can't move, and • when you changed the suggestion (`r` resets it). Targets are
+    fixed-width colored badges (TOOLS / EXPORTS / ALIASES / FUNCTIONS, KEEP, LATER for undecided,
+    REMOVE for an exact duplicate; bracketed without colors). Any choice can be changed in any
+    order (`t/e/a/f`, `k` keep, `l` later); a two-line footer spells out each key; `Tab`/`Shift-Tab` jump between undecided
     unsure blocks; mouse click selects, wheel moves. The header counts moves / keeps / drops /
     unsure left. Preview (hidden under 90 columns, `p` toggles) shows the end of the target
     file and the block as `+` lines, comments dimmed and leading keywords bold; a same-tool

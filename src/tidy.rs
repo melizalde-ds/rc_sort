@@ -177,7 +177,7 @@ impl Plan {
         let guard = if s.scan.guard.is_some() { " (interactive only)" } else { "" };
         match &i.act {
             Act::Move(cat) => format!("{}: {} → {}{guard}", s.shown, i.name, cat.file_name()),
-            Act::Dup(other) => format!("{}: {} is already in {other}, drop it", s.shown, i.name),
+            Act::Dup(other) => format!("{}: {} is already in {other}, remove this copy", s.shown, i.name),
             Act::Keep => format!("{}: {} stays, not asked again", s.shown, i.name),
             Act::Leave => format!("{}: {} stays", s.shown, i.name),
         }
