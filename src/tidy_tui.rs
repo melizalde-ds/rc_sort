@@ -7,18 +7,18 @@ use crate::classify::Category;
 use crate::state::Paths;
 use crate::tidy::{apply, plan, Act, Item, Plan};
 use anyhow::Result;
+use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
     MouseButton, MouseEvent, MouseEventKind,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::terminal::ScrollUp;
 use ratatui::crossterm::{cursor, execute, terminal};
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::style::{Color, Style};
 use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, HighlightSpacing, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal, TerminalOptions, Viewport};
 use std::cell::{Cell, RefCell};
 use std::io::{IsTerminal, Write};
@@ -26,49 +26,103 @@ use std::path::PathBuf;
 
 /// Lines of the target file shown above the block in the preview.
 const TAIL: usize = 3;
-/// Columns a target badge takes (`[ FUNCTIONS ]`).
+/// Columns a target badge takes (` ● functions `).
 const BADGE_W: usize = 13;
+/// Cells in the header's progress bar.
+const BAR: usize = 8;
 /// Below this width the preview starts hidden (`p` shows it).
 const WIDE: u16 = 90;
-
-
-/// The whole palette, by meaning. Only the terminal's named ANSI colors, so its theme
-/// (light or dark) picks the shades; no background colors and no black/white text, which
-/// break on themes we can't predict; and every color comes with an icon or a word, so
-/// nothing depends on color alone.
-mod palette {
-    use ratatui::style::{Color, Style};
-
-    /// Hints, file outcomes, the target file's tail, LATER.
-    pub fn muted() -> Style {
-        Style::new().dim()
-    }
-    /// Title, key letters, category badges.
-    pub fn accent() -> Style {
-        Style::new().fg(Color::Cyan)
-    }
-    /// ✓ sure, `+` lines, the summary's ◇.
-    pub fn good() -> Style {
-        Style::new().fg(Color::Green)
-    }
-    /// ? unsure, • changed, "N unsure left", messages.
-    pub fn attention() -> Style {
-        Style::new().fg(Color::Yellow)
-    }
-    /// ⊘ can't move, REMOVE, a file that gets deleted.
-    pub fn danger() -> Style {
-        Style::new().fg(Color::Red)
-    }
-    /// The selected row: the theme's own colors swapped, readable in any theme.
-    pub fn selected() -> Style {
-        Style::new().reversed()
-    }
-}
 /// First words that get bold in the preview.
 const SHELL_WORDS: [&str; 18] = [
     "export", "alias", "function", "eval", "source", ".", "if", "then", "elif", "else", "fi", "for", "while",
     "do", "done", "case", "esac", "unset",
 ];
+
+/// How much color the terminal gets.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Tier {
+    /// The 16 named colors: the terminal's theme picks the shades (also under NO_COLOR).
+    Ansi,
+    /// 24-bit colors for a dark background.
+    Dark,
+    /// 24-bit colors for a light background.
+    Light,
+}
+
+/// The palette, by meaning: "usable at 16 colors, nicer at true color". On 16 colors only
+/// named colors and dim, no backgrounds; on true color a soft violet accent plus a surface
+/// tint for the selected row, badges and key caps. No black/white text in any tier, and
+/// every color comes with an icon or a word.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Theme {
+    pub(crate) tier: Tier,
+}
+
+fn hex(v: u32) -> Color {
+    Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+
+impl Theme {
+    /// `BASHRC_SORT_THEME=ansi|dark|light` wins; otherwise `COLORTERM=truecolor|24bit` gets
+    /// the dark palette (most terminals; asking the terminal for its background is
+    /// unreliable over tmux and ssh) and anything else the 16 colors.
+    pub(crate) fn detect() -> Theme {
+        let tier = match std::env::var("BASHRC_SORT_THEME").as_deref() {
+            Ok("ansi") => Tier::Ansi,
+            Ok("dark") => Tier::Dark,
+            Ok("light") => Tier::Light,
+            _ if std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit") => Tier::Dark,
+            _ => Tier::Ansi,
+        };
+        Theme { tier }
+    }
+
+    fn pick(&self, dark: u32, light: u32, ansi: Color) -> Color {
+        match self.tier {
+            Tier::Ansi => ansi,
+            Tier::Dark => hex(dark),
+            Tier::Light => hex(light),
+        }
+    }
+
+    /// Title, selection bar, category badges, key caps.
+    pub(crate) fn accent(&self) -> Style {
+        Style::new().fg(self.pick(0xa78bfa, 0x7c3aed, Color::Cyan))
+    }
+    /// ✓ sure, `+` lines, a finished progress bar.
+    pub(crate) fn good(&self) -> Style {
+        Style::new().fg(self.pick(0x86efac, 0x15803d, Color::Green))
+    }
+    /// ? unsure, • changed, messages, `Apply?`.
+    pub(crate) fn attention(&self) -> Style {
+        Style::new().fg(self.pick(0xfcd34d, 0xb45309, Color::Yellow))
+    }
+    /// ⊘ can't move, remove, a file that gets deleted.
+    pub(crate) fn danger(&self) -> Style {
+        Style::new().fg(self.pick(0xfca5a5, 0xb91c1c, Color::Red))
+    }
+    /// Hints, outcomes, rules, the target file's tail, later.
+    pub(crate) fn muted(&self) -> Style {
+        match self.tier {
+            Tier::Ansi => Style::new().dim(),
+            _ => Style::new().fg(self.pick(0x8b8fa3, 0x6b7280, Color::Reset)),
+        }
+    }
+    /// The tint behind the selected row, badges and key caps; none on 16 colors.
+    pub(crate) fn surface(&self) -> Option<Color> {
+        match self.tier {
+            Tier::Ansi => None,
+            Tier::Dark => Some(hex(0x2a2d3e)),
+            Tier::Light => Some(hex(0xe6e6f0)),
+        }
+    }
+    fn on_surface(&self, style: Style) -> Style {
+        match self.surface() {
+            Some(bg) => style.bg(bg),
+            None => style,
+        }
+    }
+}
 
 /// Every symbol the box and the summary print, so a non-UTF-8 terminal gets ASCII.
 #[derive(Clone, Copy)]
@@ -79,12 +133,25 @@ pub(crate) struct Glyphs {
     changed: &'static str,
     arrow: &'static str,
     dot: &'static str,
-    select: &'static str,
+    /// Left of the selected row.
+    bar: &'static str,
     updown: &'static str,
     more: char,
     border: border::Set<'static>,
+    hline: &'static str,
+    vline: &'static str,
+    tee_top: &'static str,
+    tee_bottom: &'static str,
+    logo: &'static str,
+    full: &'static str,
+    empty: &'static str,
+    /// Badge icons: category, keep, later, remove.
+    cat: &'static str,
+    keep: &'static str,
+    later: &'static str,
+    remove: &'static str,
     title: &'static str,
-    bar: &'static str,
+    pipe: &'static str,
     end: &'static str,
 }
 
@@ -95,12 +162,23 @@ pub(crate) const UNICODE: Glyphs = Glyphs {
     changed: "•",
     arrow: "→",
     dot: "·",
-    select: "▸ ",
+    bar: "▌",
     updown: "↑↓",
     more: '…',
     border: border::ROUNDED,
+    hline: "─",
+    vline: "│",
+    tee_top: "┬",
+    tee_bottom: "┴",
+    logo: "◆",
+    full: "▰",
+    empty: "▱",
+    cat: "●",
+    keep: "○",
+    later: "◐",
+    remove: "✕",
     title: "◇",
-    bar: "│",
+    pipe: "│",
     end: "└",
 };
 
@@ -111,7 +189,7 @@ pub(crate) const ASCII: Glyphs = Glyphs {
     changed: "*",
     arrow: "->",
     dot: "-",
-    select: "> ",
+    bar: ">",
     updown: "up/down",
     more: '~',
     border: border::Set {
@@ -124,8 +202,19 @@ pub(crate) const ASCII: Glyphs = Glyphs {
         horizontal_top: "-",
         horizontal_bottom: "-",
     },
+    hline: "-",
+    vline: "|",
+    tee_top: "+",
+    tee_bottom: "+",
+    logo: "*",
+    full: "#",
+    empty: "-",
+    cat: "*",
+    keep: "o",
+    later: "~",
+    remove: "x",
     title: "*",
-    bar: "|",
+    pipe: "|",
     end: "`",
 };
 
@@ -139,7 +228,6 @@ fn utf8_locale() -> bool {
             v.contains("utf-8") || v.contains("utf8")
         })
 }
-
 
 /// The `?` key list, with this terminal's symbols.
 fn keys_help(g: &Glyphs) -> Vec<String> {
@@ -168,9 +256,11 @@ pub fn run(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<(
         return Ok(());
     }
     out.flush()?;
+    let color = std::env::var_os("NO_COLOR").is_none();
     let mut app = App {
         g: if utf8_locale() { UNICODE } else { ASCII },
-        color: std::env::var_os("NO_COLOR").is_none(),
+        theme: if color { Theme::detect() } else { Theme { tier: Tier::Ansi } },
+        color,
         ..App::default()
     };
     let (_, rows) = terminal::size()?;
@@ -240,8 +330,9 @@ pub fn run(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<(
     Ok(())
 }
 
-/// Box height: header, two footer lines, borders and one row per file and block; at most 60% of the
-/// terminal (but never under 10 lines), the list scrolls past that.
+/// Box height: header, two footer lines, borders and one row per file, block and gap
+/// between files; at most 60% of the terminal (but never under 10 lines), the list
+/// scrolls past that.
 pub(crate) fn height(plan: &Plan, term_rows: u16) -> u16 {
     let rows = rows(plan).len() as u16;
     let want = rows.max(4) + 5;
@@ -249,9 +340,10 @@ pub(crate) fn height(plan: &Plan, term_rows: u16) -> u16 {
     want.min(cap).min(term_rows)
 }
 
-/// A list row: a source file heading, or one of its blocks (index into `plan.items`).
+/// A list row: a blank line between files, a file heading, or one of its blocks.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Row {
+    Gap,
     File(usize),
     Item(usize),
 }
@@ -262,6 +354,9 @@ pub(crate) fn rows(plan: &Plan) -> Vec<Row> {
     let mut last = None;
     for (i, item) in plan.items.iter().enumerate() {
         if last != Some(item.src) {
+            if last.is_some() {
+                rows.push(Row::Gap);
+            }
             rows.push(Row::File(item.src));
             last = Some(item.src);
         }
@@ -290,13 +385,14 @@ pub(crate) struct App {
     /// `p` pressed: show or hide the preview regardless of width.
     pub(crate) preview: Option<bool>,
     pub(crate) g: Glyphs,
+    pub(crate) theme: Theme,
     /// False under NO_COLOR: the box keeps bold/dim but drops colors.
     pub(crate) color: bool,
     /// Whether the last frame was wide enough for the preview by default.
     wide: Cell<bool>,
     /// The list's scroll position, kept across frames.
     list: RefCell<ListState>,
-    /// Where the list rows were drawn (inside the border), for mouse clicks.
+    /// Where the list rows were drawn, for mouse clicks.
     list_area: Cell<Rect>,
 }
 
@@ -309,6 +405,7 @@ impl Default for App {
             status: String::new(),
             preview: None,
             g: UNICODE,
+            theme: Theme { tier: Tier::Ansi },
             color: true,
             wide: Cell::new(true),
             list: RefCell::new(ListState::default()),
@@ -414,7 +511,7 @@ impl App {
                             self.sel = i;
                         }
                     }
-                    None => {}
+                    Some(Row::Gap) | None => {}
                 }
             }
             _ => {}
@@ -423,28 +520,31 @@ impl App {
     }
 }
 
-/// Badge text and style for a choice: categories share the accent; color only marks status.
-fn badge(act: &Act) -> (&'static str, Style) {
+/// Badge icon, word and style: categories share the accent; color only marks status.
+fn badge(act: &Act, g: &Glyphs, t: &Theme) -> (&'static str, String, Style) {
     match act {
-        Act::Move(Category::Tools) => ("TOOLS", palette::accent().bold()),
-        Act::Move(Category::Exports) => ("EXPORTS", palette::accent().bold()),
-        Act::Move(Category::Aliases) => ("ALIASES", palette::accent().bold()),
-        Act::Move(Category::Functions) => ("FUNCTIONS", palette::accent().bold()),
-        Act::Keep => ("KEEP", Style::new().bold()),
-        Act::Leave => ("LATER", palette::muted()),
-        Act::Dup(_) => ("REMOVE", palette::danger().bold()),
+        Act::Move(_) => (g.cat, word(act), t.accent().bold()),
+        Act::Keep => (g.keep, word(act), Style::new().bold()),
+        Act::Leave => (g.later, word(act), t.muted()),
+        Act::Dup(_) => (g.remove, word(act), t.danger().bold()),
     }
 }
 
-/// A fixed-width badge (`BADGE_W` columns, `[ FUNCTIONS ]`) so the targets line up.
-fn badge_span(act: &Act) -> Span<'static> {
-    let (text, style) = badge(act);
-    Span::styled(format!("[ {text:<9} ]"), style)
+/// A fixed-width badge (`BADGE_W` columns, ` ● functions `) on the surface tint, so the
+/// targets line up.
+fn badge_span(act: &Act, g: &Glyphs, t: &Theme) -> Span<'static> {
+    let (icon, word, style) = badge(act, g, t);
+    Span::styled(format!(" {icon} {word:<9} "), t.on_surface(style))
 }
 
-/// The choice in words, for messages: `tools`, `later`, `keep`, `remove`.
+/// The choice in words: `tools`, `exports`, `aliases`, `functions`, `keep`, `later`, `remove`.
 fn word(act: &Act) -> String {
-    badge(act).0.to_ascii_lowercase()
+    match act {
+        Act::Move(cat) => cat.file_name().trim_end_matches(".sh").to_string(),
+        Act::Keep => "keep".into(),
+        Act::Leave => "later".into(),
+        Act::Dup(_) => "remove".into(),
+    }
 }
 
 fn truncate(s: &str, w: usize, more: char) -> String {
@@ -460,41 +560,50 @@ fn file_name(shown: &str) -> &str {
     shown.rsplit('/').next().unwrap_or(shown)
 }
 
-/// `✓• name ………  TOOLS `, padded so the badges line up at the right edge.
-fn item_line(item: &Item, width: usize, g: &Glyphs) -> Line<'static> {
+/// `▌ ✓• name ……  ● tools     `: selection bar, status icon, changed mark, name, badge.
+fn item_line(item: &Item, selected: bool, width: usize, g: &Glyphs, t: &Theme) -> Line<'static> {
     let (icon, icon_style) = if !item.block.balanced {
-        (g.blocked, palette::danger())
+        (g.blocked, t.danger())
     } else if item.note.is_some() {
-        (g.unsure, palette::attention())
+        (g.unsure, t.attention())
     } else {
-        (g.sure, palette::good())
+        (g.sure, t.good())
     };
     let changed = if item.act != item.suggested { g.changed } else { " " };
-    let name_w = width.saturating_sub(BADGE_W + 4).max(4);
+    let name_w = width.saturating_sub(BADGE_W + 6).max(4);
+    let name_style = if selected { Style::new().bold() } else { Style::new() };
     Line::from(vec![
+        Span::styled(if selected { g.bar } else { " " }, t.accent()),
+        Span::raw(" "),
         Span::styled(icon, icon_style),
-        Span::styled(changed, palette::attention()),
-        Span::raw(format!(" {} ", truncate(&item.name, name_w, g.more))),
-        badge_span(&item.act),
+        Span::styled(changed, t.attention()),
+        Span::raw(" "),
+        Span::styled(truncate(&item.name, name_w, g.more), name_style),
+        Span::raw(" "),
+        badge_span(&item.act, g, t),
     ])
 }
 
-/// `10-mixed.sh  → deleted (empty)` / `· keeps 1 block · interactive only`.
-fn heading(plan: &Plan, si: usize, g: &Glyphs) -> Line<'static> {
+/// `10-mixed.sh ───────── keeps 1 block`: the file, a rule, and what the file becomes.
+fn heading(plan: &Plan, si: usize, width: usize, g: &Glyphs, t: &Theme) -> Line<'static> {
     let src = &plan.srcs[si];
     let (_, delete) = plan.leftover(si);
     let left = plan.remaining(si);
-    let mut spans = vec![Span::styled(file_name(&src.shown).to_string(), Style::new().bold())];
-    if delete {
-        spans.push(Span::styled(format!("  {} deleted (empty)", g.arrow), palette::danger()));
+    let mut outcome = vec![if delete {
+        Span::styled(format!("{} deleted (empty)", g.arrow), t.danger())
     } else {
         let s = if left == 1 { "" } else { "s" };
-        spans.push(Span::styled(format!("  {} keeps {left} block{s}", g.dot), palette::muted()));
-    }
+        Span::styled(format!("keeps {left} block{s}"), t.muted())
+    }];
     let moving = plan.items.iter().any(|i| i.src == si && matches!(i.act, Act::Move(_)));
     if src.guarded() && moving {
-        spans.push(Span::styled(format!(" {} interactive only", g.dot), palette::muted()));
+        outcome.push(Span::styled(format!(" {} interactive only", g.dot), t.muted()));
     }
+    let name = file_name(&src.shown).to_string();
+    let used = name.chars().count() + 2 + outcome.iter().map(|s| s.content.chars().count()).sum::<usize>();
+    let rule = g.hline.repeat(width.saturating_sub(used).max(1));
+    let mut spans = vec![Span::styled(name, Style::new().bold()), Span::raw(" "), Span::styled(rule, t.muted()), Span::raw(" ")];
+    spans.extend(outcome);
     Line::from(spans)
 }
 
@@ -518,78 +627,123 @@ fn shell_line(prefix: &str, line: &str, base: Style) -> Line<'static> {
     }
 }
 
+/// A key drawn like a key cap: on the surface tint with true color, bold accent otherwise.
+fn keycap(k: &str, t: &Theme) -> Span<'static> {
+    let style = t.accent().bold();
+    match t.surface() {
+        Some(_) => Span::styled(format!(" {k} "), t.on_surface(style)),
+        None => Span::styled(k.to_string(), style),
+    }
+}
+
+
+/// Rows `lines` take once wrapped at `width` (one at least per line).
+fn wrapped_height(lines: &[Line], width: u16) -> u16 {
+    let w = width.max(1) as usize;
+    lines.iter().map(|l| l.width().max(1).div_ceil(w) as u16).sum()
+}
+
 pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
-    let g = &app.g;
+    let (g, t) = (&app.g, &app.theme);
+    let d = g.dot;
     let area = f.area();
     let [head, body, foot] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(3), Constraint::Length(2)]).areas(area);
     app.wide.set(area.width >= WIDE);
     let rows = rows(plan);
-    let bordered = || Block::bordered().border_set(g.border);
 
+    // Header: logo, title, progress through the unsure blocks, counts.
     let count = |pred: fn(&Item) -> bool| plan.items.iter().filter(|i| pred(i)).count();
     let moves = count(|i| matches!(i.act, Act::Move(_)));
     let drops = count(|i| matches!(i.act, Act::Dup(_)));
     let keeps = count(|i| i.act == Act::Keep);
-    let open = count(undecided);
-    let d = g.dot;
+    let total = plan.items.len();
+    let decided = total - count(undecided);
+    let filled = (decided * BAR).checked_div(total).unwrap_or(BAR);
+    let done = decided == total;
     let mut title = vec![
-        Span::styled(" bashrc-sort tidy", palette::accent().bold()),
-        Span::styled(format!(" {d} {moves} move {d} {keeps} keep {d} {drops} remove"), palette::muted()),
+        Span::raw(" "),
+        Span::styled(g.logo, t.accent().bold()),
+        Span::styled(" bashrc-sort tidy   ", Style::new().bold()),
+        Span::styled(g.full.repeat(filled), if done { t.good() } else { t.accent() }),
+        Span::styled(g.empty.repeat(BAR - filled), t.muted()),
+        Span::raw(" "),
     ];
-    if open > 0 {
-        title.push(Span::styled(format!(" {d} {open} unsure left"), palette::attention()));
-    }
-    f.render_widget(Paragraph::new(Line::from(title)), head);
-    f.render_widget(Line::styled("? keys ", palette::muted()).right_aligned(), head);
-
-    let (left, right) = if app.show_preview(area.width >= WIDE) {
-        let [l, r] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
-        (l, Some(r))
+    if done {
+        title.push(Span::styled(format!("all decided {d} y to apply"), t.good()));
     } else {
-        (body, None)
-    };
+        title.push(Span::styled(format!("{decided}/{total} decided"), Style::new()));
+    }
+    title.push(Span::styled(format!("   {moves} move {d} {keeps} keep {d} {drops} remove"), t.muted()));
+    f.render_widget(Paragraph::new(Line::from(title)), head);
+    f.render_widget(Line::styled("? keys ", t.muted()).right_aligned(), head);
 
-    // Inside the border and after the 2-column highlight symbol.
-    let width = left.width.saturating_sub(4) as usize;
+    // One rounded box; a thin divider splits list and preview.
+    let outer = Block::bordered().border_set(g.border).border_style(t.muted());
+    let inner = outer.inner(body);
+    f.render_widget(outer, body);
+    let (left, right) = if app.show_preview(area.width >= WIDE) {
+        let [l, div, r] =
+            Layout::horizontal([Constraint::Percentage(52), Constraint::Length(1), Constraint::Min(10)]).areas(inner);
+        let buf = f.buffer_mut();
+        for y in div.y..div.y + div.height {
+            if let Some(c) = buf.cell_mut((div.x, y)) {
+                c.set_symbol(g.vline).set_style(t.muted());
+            }
+        }
+        for (y, sym) in [(body.y, g.tee_top), (body.y + body.height.saturating_sub(1), g.tee_bottom)] {
+            if let Some(c) = buf.cell_mut((div.x, y)) {
+                c.set_symbol(sym);
+            }
+        }
+        (l, Some(r.inner(Margin::new(1, 0))))
+    } else {
+        (inner, None)
+    };
+    let list_area = left.inner(Margin::new(1, 0));
+    app.list_area.set(list_area);
+
+    let width = list_area.width as usize;
     let items: Vec<ListItem> = rows
         .iter()
         .map(|r| match r {
-            Row::File(si) => ListItem::new(heading(plan, *si, g)),
-            Row::Item(i) => ListItem::new(item_line(&plan.items[*i], width, g)),
+            Row::Gap => ListItem::new(Line::default()),
+            Row::File(si) => ListItem::new(heading(plan, *si, width, g, t)),
+            Row::Item(i) => ListItem::new(item_line(&plan.items[*i], *i == app.sel, width, g, t)),
         })
         .collect();
-    let list = List::new(items)
-        .block(bordered())
-        .highlight_symbol(g.select)
-        .highlight_spacing(HighlightSpacing::Always)
-        .highlight_style(palette::selected());
+    let list = List::new(items).highlight_style(t.on_surface(Style::new()));
     {
         let mut state = app.list.borrow_mut();
         state.select(rows.iter().position(|r| *r == Row::Item(app.sel)));
-        f.render_stateful_widget(list, left, &mut state);
+        f.render_stateful_widget(list, list_area, &mut state);
     }
-    app.list_area.set(left.inner(Margin::new(1, 1)));
 
     if let (Some(right), Some(item)) = (right, plan.items.get(app.sel)) {
+        let (title, lines) = preview(plan, app.sel, g, t);
+        let mut text = vec![title, Line::default()];
+        text.extend(lines);
         let (top, bottom) = match &item.clash {
             Some(_) => {
-                let [t, b] = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(right);
-                (t, Some(b))
+                // The block gets the room it needs; the compare part takes the rest.
+                let need = wrapped_height(&text, right.width).min(right.height.saturating_sub(3));
+                let [a, b] = Layout::vertical([Constraint::Length(need), Constraint::Min(3)]).areas(right);
+                (a, Some(b))
             }
             None => (right, None),
         };
-        let (title, lines) = preview(plan, app.sel, g);
-        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(bordered().title(title)), top);
-        if let (Some(b), Some((file, text))) = (bottom, &item.clash) {
-            let lines: Vec<Line> = text.lines().map(|l| shell_line("  ", l, Style::new())).collect();
-            let title = format!(" already in {file} {d} compare ");
-            f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(bordered().title(title)), b);
+        f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), top);
+        if let (Some(b), Some((file, existing))) = (bottom, &item.clash) {
+            let label = format!(" already in {file} {d} compare ");
+            let fill = (b.width as usize).saturating_sub(label.chars().count() + 2);
+            let mut lines = vec![Line::styled(format!("{}{}{}", g.hline.repeat(2), label, g.hline.repeat(fill)), t.muted())];
+            lines.extend(existing.lines().map(|l| shell_line("  ", l, Style::new())));
+            f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), b);
         }
     }
 
-    // Line 1: every choice key next to the word it sets, in its badge's color.
-    let mut keys = vec![Span::raw(" ")];
+    // Footer line 1: each choice key and the word it sets; line 2: confirm, message or moving around.
+    let mut keys = vec![Span::raw("  ")];
     let choices = [
         ("t", Act::Move(Category::Tools)),
         ("e", Act::Move(Category::Exports)),
@@ -598,31 +752,27 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
         ("k", Act::Keep),
         ("l", Act::Leave),
     ];
-    for (i, (k, act)) in choices.iter().enumerate() {
-        keys.push(Span::styled(*k, palette::accent().bold()));
-        keys.push(Span::styled(format!(" {}", word(act)), palette::muted()));
-        keys.push(Span::raw(if i == 3 { "   " } else { "  " }));
+    for (k, act) in &choices {
+        keys.extend([keycap(k, t), Span::styled(format!(" {}  ", word(act)), t.muted())]);
     }
-    keys.extend([Span::styled("r", palette::accent().bold()), Span::styled(" reset", palette::muted())]);
-    // Line 2: the confirm question, a message, or how to move around.
+    keys.extend([keycap("r", t), Span::styled(" reset", t.muted())]);
     let second = if app.confirm {
         Line::from(vec![
-            Span::styled(" Apply? ", palette::attention().bold()),
+            Span::styled("  Apply? ", t.attention().bold()),
             Span::raw(format!("{moves} move {d} {keeps} keep {d} {drops} remove   ")),
-            Span::raw("y/N").bold(),
+            keycap("y", t),
+            Span::styled(" yes  any other key goes back", t.muted()),
         ])
     } else if !app.status.is_empty() {
-        Line::styled(format!(" {}", app.status), palette::attention())
+        Line::styled(format!("  {}", app.status), t.attention())
     } else {
-        let mut nav = vec![Span::raw(" ")];
-        for (i, (k, what)) in
-            [("Tab", "next unsure"), (g.updown, "select"), ("y", "apply"), ("q", "quit"), ("?", "all keys")].iter().enumerate()
-        {
+        let mut nav = vec![Span::raw("  ")];
+        let hints = [("tab", "next unsure"), (g.updown, "select"), ("y", "apply"), ("q", "quit"), ("?", "all keys")];
+        for (i, (k, what)) in hints.iter().enumerate() {
             if i > 0 {
-                nav.push(Span::styled(format!(" {d} "), palette::muted()));
+                nav.push(Span::styled(format!(" {d} "), t.muted()));
             }
-            nav.push(Span::styled(*k, palette::accent().bold()));
-            nav.push(Span::styled(format!(" {what}"), palette::muted()));
+            nav.extend([keycap(k, t), Span::styled(format!(" {what}"), t.muted())]);
         }
         Line::from(nav)
     };
@@ -630,11 +780,12 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
 
     if app.help {
         let help = keys_help(g);
-        let h = (help.len() as u16 + 2).min(body.height);
-        let area = Rect { height: h, ..body };
+        let h = (help.len() as u16 + 2).min(inner.height);
+        let area = Rect { height: h, ..inner };
         let keys: Vec<Line> = help.into_iter().map(Line::from).collect();
+        let block = Block::bordered().border_set(g.border).border_style(t.accent()).title(" keys · any key closes ");
         f.render_widget(Clear, area);
-        f.render_widget(Paragraph::new(keys).block(bordered().title(" keys · any key closes ")), area);
+        f.render_widget(Paragraph::new(keys).block(block), area);
     }
 
     if !app.color {
@@ -645,55 +796,58 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
     }
 }
 
-/// Preview title and lines: the end of the target file dimmed, then the block as `+` lines.
-fn preview(plan: &Plan, sel: usize, g: &Glyphs) -> (String, Vec<Line<'static>>) {
-    let Some(item) = plan.items.get(sel) else { return (String::new(), Vec::new()) };
+/// Preview heading and lines: the end of the target file muted, then the block as `+` lines.
+fn preview(plan: &Plan, sel: usize, g: &Glyphs, t: &Theme) -> (Line<'static>, Vec<Line<'static>>) {
+    let Some(item) = plan.items.get(sel) else { return (Line::default(), Vec::new()) };
     let d = g.dot;
     let mut lines = Vec::new();
     if !item.block.balanced {
-        lines.push(Line::styled("half of an if/loop: it can't be moved", palette::danger()));
+        lines.push(Line::styled("half of an if/loop: it can't be moved", t.danger()));
     }
     match item.note.as_deref() {
-        Some("") => lines.push(Line::styled("unsure: no rule matched", palette::attention())),
-        Some(why) => lines.push(Line::styled(format!("unsure: {why}"), palette::attention())),
+        Some("") => lines.push(Line::styled("unsure: no rule matched", t.attention())),
+        Some(why) => lines.push(Line::styled(format!("unsure: {why}"), t.attention())),
         None => {}
     }
     if item.act != item.suggested {
         let was = word(&item.suggested);
-        lines.push(Line::styled(format!("changed by you (suggested: {was}; r resets)"), palette::attention()));
+        lines.push(Line::styled(format!("changed by you (suggested: {was}; r resets)"), t.attention()));
     }
     if !lines.is_empty() {
         lines.push(Line::default());
     }
-    let title = match &item.act {
+    let src = file_name(&plan.srcs[item.src].shown).to_string();
+    let (what, rest) = match &item.act {
         Act::Move(cat) => {
             let name = cat.file_name();
             let target = plan.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.as_str());
-            if let Some(t) = target {
-                let tail: Vec<&str> = t.lines().collect();
+            if let Some(text) = target {
+                let tail: Vec<&str> = text.lines().collect();
                 for l in &tail[tail.len().saturating_sub(TAIL)..] {
-                    lines.push(shell_line("  ", l, palette::muted()));
+                    lines.push(shell_line("  ", l, t.muted()));
                 }
             }
-            let green = palette::good();
-            lines.extend(item.text.lines().map(|l| shell_line("+ ", l, green)));
-            format!(" {name} ({}) ", if target.is_some() { "end" } else { "new" })
+            lines.extend(item.text.lines().map(|l| shell_line("+ ", l, t.good())));
+            (name.to_string(), if target.is_some() { "end of file".to_string() } else { "new file".to_string() })
         }
         Act::Dup(other) => {
-            lines.extend(item.block.text.lines().map(|l| shell_line("= ", l, palette::muted())));
-            format!(" remove {d} exact copy already in {other} ")
+            lines.extend(item.block.text.lines().map(|l| shell_line("= ", l, t.muted())));
+            ("remove".to_string(), format!("exact copy already in {other}"))
         }
-        Act::Keep | Act::Leave => {
+        Act::Keep => {
             lines.extend(item.block.text.lines().map(|l| shell_line("  ", l, Style::new())));
-            let src = file_name(&plan.srcs[item.src].shown);
-            if item.act == Act::Keep {
-                format!(" keep {d} stays in {src}, never asked again ")
-            } else {
-                format!(" later {d} stays in {src}, asked again next time ")
-            }
+            ("keep".to_string(), format!("stays in {src} for good"))
+        }
+        Act::Leave => {
+            lines.extend(item.block.text.lines().map(|l| shell_line("  ", l, Style::new())));
+            ("later".to_string(), format!("stays in {src} for now"))
         }
     };
-    (title, lines)
+    let heading = Line::from(vec![
+        Span::styled(what, Style::new().bold()),
+        Span::styled(format!(" {d} {rest}"), t.muted()),
+    ]);
+    (heading, lines)
 }
 
 /// What stays in scrollback once the box is gone. `skipped` is `None` when nothing was
@@ -731,7 +885,7 @@ pub(crate) fn summary(plan: &Plan, skipped: Option<&[usize]>, backups: &str, wid
     for &si in skipped {
         out.push(format!(
             "{} skipped {}: it changed while you were choosing; run tidy again",
-            g.bar, plan.srcs[si].shown
+            g.pipe, plan.srcs[si].shown
         ));
     }
     out.push(format!("{} done {} backups in {backups}", g.end, g.dot));
@@ -745,8 +899,8 @@ fn wrap_into(out: &mut Vec<String>, g: &Glyphs, label: &str, parts: &[String], w
         return;
     }
     let sep = format!(" {} ", g.dot);
-    let indent = format!("{} {}", g.bar, " ".repeat(label.chars().count()));
-    let mut line = format!("{} {label}", g.bar);
+    let indent = format!("{} {}", g.pipe, " ".repeat(label.chars().count()));
+    let mut line = format!("{} {label}", g.pipe);
     let mut empty = true;
     for part in parts {
         let len = line.chars().count() + sep.chars().count() + part.chars().count();
@@ -771,13 +925,14 @@ fn paint(line: &str, g: &Glyphs, color: bool) -> String {
     if line == format!("{} nothing changed", g.end) {
         return format!("\x1b[2m{line}\x1b[0m");
     }
-    for (mark, code) in [(g.title, "32"), (g.bar, "2"), (g.end, "2")] {
+    for (mark, code) in [(g.title, "32"), (g.pipe, "2"), (g.end, "2")] {
         if let Some(rest) = line.strip_prefix(mark) {
             return format!("\x1b[{code}m{mark}\x1b[0m{rest}");
         }
     }
     line.to_string()
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -835,7 +990,7 @@ mod tests {
         let p = setup("rows");
         fs::write(p.rc_dir().join("40-y.sh"), "export Y=1\n").unwrap();
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
-        assert_eq!(rows(&plan), vec![Row::File(0), Row::Item(0), Row::Item(1), Row::File(1), Row::Item(2)]);
+        assert_eq!(rows(&plan), vec![Row::File(0), Row::Item(0), Row::Item(1), Row::Gap, Row::File(1), Row::Item(2)]);
     }
 
     #[test]
@@ -940,13 +1095,15 @@ mod tests {
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
         let mut app = App::default();
         let s = screen(&app, &plan, 110, 10);
-        for want in ["1 move · 0 keep · 0 remove · 1 unsure left", "30-x.sh  · keeps 1 block", "▸ ✓  alias g=git",
-                     "[ ALIASES   ]", "?  ssh-agent", "[ LATER     ]", "aliases.sh (new)", "+ alias g=git", "t tools  e exports  a aliases  f functions   k keep  l later  r reset", "Tab next unsure · ↑↓ select · y apply"] {
+        for want in ["◆ bashrc-sort tidy", "▰▰▰▰▱▱▱▱ 1/2 decided", "1 move · 0 keep · 0 remove", "30-x.sh ─",
+                     "─ keeps 1 block", "▌ ✓  alias g=git", "● aliases", "?  ssh-agent", "◐ later", "aliases.sh · new file",
+                     "+ alias g=git", "t tools  e exports  a aliases  f functions  k keep  l later  r reset",
+                     "tab next unsure · ↑↓ select · y apply", "╭", "┬", "┴"] {
             assert!(s.contains(want), "missing {want:?} in {s}");
         }
-        assert!(!screen(&app, &plan, 70, 10).contains("(new)"), "narrow: preview hidden");
+        assert!(!screen(&app, &plan, 70, 10).contains("new file"), "narrow: preview hidden");
         app.preview = Some(true);
-        assert!(screen(&app, &plan, 70, 10).contains("(new)"), "p shows it anyway");
+        assert!(screen(&app, &plan, 70, 10).contains("new file"), "p shows it anyway");
         app.confirm = true;
         assert!(screen(&app, &plan, 110, 10).contains("Apply? 1 move · 0 keep · 0 remove"));
         app.confirm = false;
@@ -961,13 +1118,19 @@ mod tests {
         let app = App { sel: 1, ..App::default() };
         plan.items[1].act = Act::Move(Category::Tools);
         let s = screen(&app, &plan, 110, 10);
-        assert!(s.contains("30-x.sh  → deleted (empty)"), "{s}");
-        assert!(s.contains("✓  alias") && s.contains("▸ ?• ssh-agent"), "changed rows are marked: {s}");
+        assert!(s.contains("─ → deleted (empty)"), "{s}");
+        assert!(s.contains("✓  alias") && s.contains("▌ ?• ssh-agent"), "changed rows are marked: {s}");
         assert!(s.contains("changed by you (suggested: later; r resets)"), "{s}");
 
         fs::write(p.rc_dir().join("30-x.sh"), "[[ $- == *i* ]] || return\nalias g=git\n").unwrap();
         let plan = super::plan(&p, None, &mut Vec::new()).unwrap();
         assert!(screen(&App::default(), &plan, 110, 10).contains("interactive only"));
+    }
+
+    #[test]
+    fn wrapped_height_counts_wrapped_rows() {
+        let lines = vec![Line::from("x".repeat(25)), Line::default(), Line::from("short")];
+        assert_eq!(wrapped_height(&lines, 10), 3 + 1 + 1);
     }
 
     #[test]
@@ -978,8 +1141,9 @@ mod tests {
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
         assert_eq!(plan.items[0].clash, Some(("tools.sh".into(), "# rust\n. \"$HOME/.cargo/env\"".into())));
         let s = screen(&App::default(), &plan, 110, 14);
-        assert!(s.contains("already in tools.sh · compare"), "{s}");
+        assert!(s.contains("── already in tools.sh · compare ─"), "{s}");
         assert!(s.contains(". \"$HOME/.cargo/env\""), "{s}");
+        assert!(s.contains("  export PATH=\"$HOME/.cargo/bin:$PATH\""), "the block itself stays visible: {s}");
     }
 
     #[test]
@@ -991,7 +1155,7 @@ mod tests {
         let buf = term.backend().buffer();
         assert!(buf.content().iter().all(|c| c.fg == Color::Reset && c.bg == Color::Reset));
         let s: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(s.contains("> v  alias g=git") && s.contains("[ ALIASES   ]") && s.contains("+---"), "{s}");
+        assert!(s.contains("> v  alias g=git") && s.contains("* aliases") && s.contains("+---") && s.contains("##"), "{s}");
         assert!(s.is_ascii(), "{s}");
     }
 
@@ -1001,18 +1165,38 @@ mod tests {
         fs::write(p.rc_dir().join("60-dup.sh"), "alias g=git\n").unwrap();
         fs::write(p.rc_dir().join("aliases.sh"), "alias g=git\n").unwrap();
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
-        let mut app = App::default();
-        let mut cells = Vec::new();
-        for (confirm, help) in [(false, false), (true, false), (false, true)] {
-            app.confirm = confirm;
-            app.help = help;
-            cells.extend(terminal(&app, &plan, 110, 12).backend().buffer().content().to_vec());
+        for tier in [Tier::Ansi, Tier::Dark, Tier::Light] {
+            let t = Theme { tier };
+            let mut app = App { theme: t, ..App::default() };
+            let mut cells = Vec::new();
+            for (confirm, help) in [(false, false), (true, false), (false, true)] {
+                app.confirm = confirm;
+                app.help = help;
+                cells.extend(terminal(&app, &plan, 110, 12).backend().buffer().content().to_vec());
+            }
+            let fg_ok: Vec<Color> = [t.accent(), t.good(), t.attention(), t.danger(), t.muted()]
+                .iter()
+                .filter_map(|s| s.fg)
+                .chain([Color::Reset])
+                .collect();
+            let bg_ok = [Some(Color::Reset), t.surface()];
+            for c in &cells {
+                assert!(bg_ok.contains(&Some(c.bg)), "{tier:?}: only the surface tint as background: {c:?}");
+                assert!(fg_ok.contains(&c.fg), "{tier:?}: only palette colors, no black/white: {c:?}");
+            }
+            if tier == Tier::Ansi {
+                assert!(cells.iter().all(|c| c.bg == Color::Reset), "no backgrounds on 16 colors");
+            }
         }
-        let named = [Color::Reset, Color::Cyan, Color::Green, Color::Yellow, Color::Red];
-        for c in &cells {
-            assert_eq!(c.bg, Color::Reset, "no background colors: {c:?}");
-            assert!(named.contains(&c.fg), "only palette colors (no black/white): {c:?}");
-        }
+    }
+
+    #[test]
+    fn theme_comes_from_the_environment() {
+        // Only checks the mapping; the env vars of the test process are left as they are.
+        assert_eq!(Theme { tier: Tier::Ansi }.surface(), None);
+        assert!(Theme { tier: Tier::Dark }.surface().is_some());
+        assert_ne!(Theme { tier: Tier::Dark }.accent(), Theme { tier: Tier::Light }.accent());
+        assert_eq!(Theme { tier: Tier::Ansi }.accent().fg, Some(Color::Cyan));
     }
 
     #[test]
@@ -1028,10 +1212,12 @@ mod tests {
             row,
             modifiers: KeyModifiers::NONE,
         };
-        // Row 0 header line, 1 top border, 2 "30-x.sh", 3 alias, 4 ssh-agent, 5 "40-y.sh", 6 export.
+        // Row 0 header line, 1 top border, 2 "30-x.sh", 3 alias, 4 ssh-agent, 5 gap, 6 "40-y.sh", 7 export.
         app.mouse(&plan, click(4));
         assert_eq!(app.sel, 1);
         app.mouse(&plan, click(5));
+        assert_eq!(app.sel, 1, "the gap between files does nothing");
+        app.mouse(&plan, click(6));
         assert_eq!(app.sel, 2, "a file heading selects its first block");
         app.mouse(&plan, click(0));
         assert_eq!(app.sel, 2, "clicks outside the list do nothing");
