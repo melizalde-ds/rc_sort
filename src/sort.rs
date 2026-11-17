@@ -105,7 +105,7 @@ fn scan(p: &Paths, shell: Shell, file: &str) -> Result<Option<(String, Vec<Block
         return Ok(None);
     }
     let Some(current) = read_opt(&p.home.join(file))? else { return Ok(None) };
-    let Some(default) = read_opt(&p.skel.join(file))? else {
+    let Some(default) = shell.default_text(p, file)? else {
         eprintln!("rc-sort: no default {}, skipping ~/{file}", p.skel.join(file).display());
         return Ok(None);
     };

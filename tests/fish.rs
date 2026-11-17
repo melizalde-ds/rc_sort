@@ -98,3 +98,20 @@ fn message_names_the_fish_target() {
     let messages = State::load(&p).unwrap().messages;
     assert_eq!(messages, vec!["rc-sort: moved abbr -a gs git status block from ~/.config/fish/config.fish to conf.d/aliases.fish"]);
 }
+
+const FISH_TEMPLATE: &str = "if status is-interactive\n    # Commands to run in interactive sessions can go here\nend\n";
+
+#[test]
+fn without_a_skel_default_the_fish_template_is_the_baseline() {
+    // Arrange
+    let p = setup("template");
+    let p = Paths { skel: p.home.join("empty-skel"), ..p };
+    fs::write(p.home.join(CONFIG), format!("{FISH_TEMPLATE}\nset -gx EDITOR nvim\n")).unwrap();
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(read(&p, "config.fish").unwrap(), FISH_TEMPLATE);
+    assert_eq!(read(&p, "conf.d/exports.fish").unwrap(), "set -gx EDITOR nvim\n");
+}

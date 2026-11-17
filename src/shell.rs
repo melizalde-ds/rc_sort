@@ -4,6 +4,8 @@ use crate::state::{read_opt, Paths};
 use anyhow::Result;
 use std::path::PathBuf;
 
+const FISH_TEMPLATE: &str = "if status is-interactive\n    # Commands to run in interactive sessions can go here\nend\n";
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Shell {
     Bash,
@@ -34,6 +36,14 @@ impl Shell {
             }
             Shell::Fish => Ok(None),
         }
+    }
+
+    pub fn default_text(self, p: &Paths, file: &str) -> Result<Option<String>> {
+        let skel = read_opt(&p.skel.join(file))?;
+        Ok(match self {
+            Shell::Bash => skel,
+            Shell::Fish => skel.or_else(|| Some(FISH_TEMPLATE.to_string())),
+        })
     }
 
     pub fn depth_delta(self, line: &str) -> i32 {
