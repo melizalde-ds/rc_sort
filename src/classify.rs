@@ -22,6 +22,10 @@ impl Category {
         }
     }
 
+    pub fn stem(self) -> &'static str {
+        self.file_name().trim_end_matches(".sh")
+    }
+
     /// The prompt keys: t/e/a/f.
     pub fn from_key(c: char) -> Option<Self> {
         match c {
@@ -63,6 +67,56 @@ pub fn classify_bash(b: &Block) -> Option<Category> {
     } else {
         None
     }
+}
+
+pub fn classify_fish(b: &Block) -> Option<Category> {
+    if !b.balanced || leaves_file(b) {
+        return None;
+    }
+    let code = code_lines(b);
+    if code.iter().any(|t| t.starts_with("function ")) {
+        function_name(&b.text).map(|_| Category::Functions)
+    } else if code.iter().all(|t| t.starts_with("alias ") || t.starts_with("abbr ")) {
+        Some(Category::Aliases)
+    } else if code.iter().any(|t| fish_sets_path(t) || t.contains('(') || sources_file(t))
+        || !tools_named(&code.join("\n")).is_empty()
+    {
+        Some(Category::Tools)
+    } else if code.iter().all(|t| fish_exports(t)) {
+        Some(Category::Exports)
+    } else {
+        None
+    }
+}
+
+pub fn function_name(text: &str) -> Option<&str> {
+    let code: Vec<&str> = text.lines().map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('#')).collect();
+    let single = code.iter().filter(|t| t.starts_with("function ")).count() == 1;
+    let wraps_all = code.first()?.starts_with("function ") && code.last() == Some(&"end");
+    if !(single && wraps_all) {
+        return None;
+    }
+    code[0].split_whitespace().nth(1)
+}
+
+fn code_lines(b: &Block) -> Vec<&str> {
+    b.text.lines().map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('#')).collect()
+}
+
+fn fish_set_name(t: &str) -> Option<&str> {
+    let mut words = t.split_whitespace();
+    (words.next() == Some("set")).then_some(())?;
+    words.find(|w| !w.starts_with('-'))
+}
+
+fn fish_sets_path(t: &str) -> bool {
+    t.starts_with("fish_add_path") || fish_set_name(t) == Some("PATH")
+}
+
+fn fish_exports(t: &str) -> bool {
+    let flags = t.split_whitespace().skip(1).take_while(|w| w.starts_with('-'));
+    fish_set_name(t).is_some()
+        && flags.into_iter().any(|f| f == "--export" || (!f.starts_with("--") && f.contains('x')))
 }
 
 /// True if the block can `return`/`exit` outside a function body. Sourced from a
@@ -127,7 +181,7 @@ fn sources_file(t: &str) -> bool {
     words.iter().enumerate().any(|(i, w)| {
         matches!(*w, "." | "\\." | "source")
             && (i == 0
-                || matches!(words[i - 1], "&&" | "||" | "then" | "do" | "else" | "{")
+                || matches!(words[i - 1], "&&" | "||" | "then" | "do" | "else" | "{" | "and" | "or" | "|")
                 || words[i - 1].ends_with(';'))
     })
 }
@@ -236,6 +290,69 @@ mod tests {
     #[test]
     fn tools_named_finds_words() {
         assert_eq!(tools_named(". \"$HOME/.cargo/env\"\nexport PNPM_HOME=x"), vec!["cargo"]);
+    }
+
+    fn fish_class(text: &str) -> Option<Category> {
+        let added: Vec<usize> = (0..text.lines().count()).collect();
+        let blocks = split_blocks(Shell::Fish, text, &added);
+        assert_eq!(blocks.len(), 1, "sample must be one block: {text:?}");
+        Shell::Fish.classify(&blocks[0])
+    }
+
+    #[test]
+    fn fish_pnpm_is_tools() {
+        let t = "# pnpm\nset -gx PNPM_HOME '/home/u/.local/share/pnpm'\nif test \"$PATH[1]\" != \"$PNPM_HOME/bin\"\n  set -gx PATH \"$PNPM_HOME/bin\" $PATH\nend\n# pnpm end";
+        assert_eq!(fish_class(t), Some(Tools));
+    }
+
+    #[test]
+    fn fish_add_path_is_tools() {
+        assert_eq!(fish_class("# uv\nfish_add_path \"/home/u/.local/bin\""), Some(Tools));
+    }
+
+    #[test]
+    fn fish_piped_source_is_tools() {
+        assert_eq!(fish_class("zoxide init fish | source"), Some(Tools));
+    }
+
+    #[test]
+    fn fish_command_substitution_is_tools() {
+        assert_eq!(fish_class("set -gx GPG_TTY (tty)"), Some(Tools));
+    }
+
+    #[test]
+    fn fish_set_export_is_exports() {
+        assert_eq!(fish_class("set -gx EDITOR nvim\nset --export --global PAGER less"), Some(Exports));
+    }
+
+    #[test]
+    fn fish_plain_set_is_unsure() {
+        assert_eq!(fish_class("set -g fish_greeting"), None);
+    }
+
+    #[test]
+    fn fish_alias_and_abbr_are_aliases() {
+        assert_eq!(fish_class("alias ll \"eza -l\"\nabbr -a gs git status"), Some(Aliases));
+    }
+
+    #[test]
+    fn fish_single_function_is_functions() {
+        assert_eq!(fish_class("function mkcd\n    mkdir -p $argv[1]\n    cd $argv[1]\nend"), Some(Functions));
+    }
+
+    #[test]
+    fn fish_two_functions_are_unsure() {
+        assert_eq!(fish_class("function a\n    echo a\nend\nfunction b\n    echo b\nend"), None);
+    }
+
+    #[test]
+    fn fish_function_with_more_code_is_unsure() {
+        assert_eq!(fish_class("function a\n    echo a\nend\nset -gx X 1"), None);
+    }
+
+    #[test]
+    fn fish_unknown_command_is_unsure() {
+        assert_eq!(fish_class("ssh-agent -c > /dev/null"), None);
     }
 
     #[test]

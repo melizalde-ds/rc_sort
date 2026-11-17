@@ -62,7 +62,7 @@ pub fn backup(p: &Paths, file: &str, content: &str) -> Result<()> {
     let dir = p.state_dir().join("backups");
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     let secs = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    let base = format!("{}.{secs}", file.trim_start_matches('.'));
+    let base = format!("{}.{secs}", file.trim_start_matches('.').replace('/', "_"));
     for n in 0.. {
         let path = if n == 0 { dir.join(&base) } else { dir.join(format!("{base}.{n}")) };
         match File::create_new(&path) {

@@ -5,7 +5,7 @@
 use crate::blocks::{split_blocks, Block};
 use crate::classify::{leaves_file, tools_named, Category};
 use crate::prompt::{ask, Answer};
-use crate::sort::{block_name, dup_in, is_category_file, place, rc_files, tool_clash, without, HOOK};
+use crate::sort::{block_name, dup_in, place, rc_files, tool_clash, without, HOOK};
 use crate::state::{atomic_write, backup, hash, load_kept, lock, Paths, State};
 use crate::shell::Shell;
 use anyhow::{bail, Context, Result};
@@ -67,9 +67,9 @@ fn wrap_interactive(text: &str) -> String {
 /// Used by the shell hook, so it reads only and never fails loudly.
 pub fn unsorted(p: &Paths) -> Result<Vec<String>> {
     let kept = load_kept(p)?;
-    Ok(rc_files(p)?
+    Ok(rc_files(p, Shell::Bash)?
         .into_iter()
-        .filter(|(n, _)| !is_category_file(n))
+        .filter(|(n, _)| !Shell::Bash.is_category_file(n))
         .filter(|(_, t)| {
             let s = scan_text(t);
             s.problem.is_some() || s.blocks.iter().any(|b| !kept.contains(&hash(&b.text)))
@@ -189,7 +189,7 @@ impl Plan {
 pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<Plan> {
     let srcs = collect(p, target, out)?;
     let kept = load_kept(p)?;
-    let files = rc_files(p)?;
+    let files = rc_files(p, Shell::Bash)?;
     let mut items: Vec<Item> = Vec::new();
     for (si, s) in srcs.iter().enumerate() {
         if let Some(why) = &s.scan.problem {
@@ -207,7 +207,7 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
                 (Act::Dup(other.to_string()), None)
             } else {
                 match Shell::Bash.classify(b) {
-                    Some(Category::Tools) => match tool_clash(&files, &text, skip) {
+                    Some(Category::Tools) => match tool_clash(Shell::Bash, &files, &text, skip) {
                         Some((other, tool)) => {
                             clash = block_naming(&files, &other, tool).map(|t| (other.clone(), t));
                             (Act::Leave, Some(format!("{other} already has a {tool} block")))
@@ -372,7 +372,7 @@ fn collect(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<V
             }
             continue;
         }
-        if in_rc && (is_category_file(&name) || name == HOOK || name.ends_with(".rc-sort.tmp")) {
+        if in_rc && (Shell::Bash.is_category_file(&name) || name == HOOK || name.ends_with(".rc-sort.tmp")) {
             if !meta.is_dir() {
                 writeln!(out, "rc-sort: {shown} is already one of the sorted files")?;
             }

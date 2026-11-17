@@ -98,6 +98,23 @@ pub(crate) fn bash_depth(t: &str) -> i32 {
     d
 }
 
+pub(crate) fn fish_depth(t: &str) -> i32 {
+    if t.starts_with('#') {
+        return 0;
+    }
+    let words: Vec<&str> = t.split(|c: char| c.is_whitespace() || c == ';').filter(|w| !w.is_empty()).collect();
+    words
+        .iter()
+        .enumerate()
+        .map(|(i, w)| match *w {
+            "if" if i > 0 && words[i - 1] == "else" => 0,
+            "if" | "for" | "while" | "function" | "switch" | "begin" => 1,
+            "end" => -1,
+            _ => 0,
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +182,24 @@ mod tests {
     #[test]
     fn comment_only_block_dropped() {
         assert!(all("# just a note\n").is_empty());
+    }
+
+    fn fish(text: &str) -> Vec<Block> {
+        let added: Vec<usize> = (0..text.lines().count()).collect();
+        split_blocks(Shell::Fish, text, &added)
+    }
+
+    #[test]
+    fn fish_if_with_else_if_not_split() {
+        let b = fish("if test -d a\n    set x a\n\nelse if test -d b\n    set x b\nend\n");
+        assert_eq!(b.len(), 1);
+        assert!(b[0].balanced);
+    }
+
+    #[test]
+    fn fish_unclosed_function_is_unbalanced() {
+        let b = fish("function f\n    echo hi\n");
+        assert!(!b[0].balanced);
     }
 
     #[test]

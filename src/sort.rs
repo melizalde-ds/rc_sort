@@ -29,12 +29,21 @@ pub fn run_once(p: &Paths) -> Result<()> {
                 state.pending.push(pending(file, b, String::new()));
                 continue;
             };
-            let files = rc_files(p)?;
-            if cat == Category::Tools && dup_in(&files, &b.text, None).is_none()
-                && let Some((other, tool)) = tool_clash(&files, &b.text, None)
+            let files = rc_files(p, shell)?;
+            let new = dup_in(&files, &b.text, None).is_none();
+            if cat == Category::Tools && new
+                && let Some((other, tool)) = tool_clash(shell, &files, &b.text, None)
             {
                 let note = format!("{other} already has a {tool} block");
                 state.pending.push(pending(file, b, note));
+                continue;
+            }
+            if let Some(name) = shell.target_name(cat, &b.text)
+                && new
+                && name.starts_with("functions/")
+                && shell.rc_dir(p).join(&name).exists()
+            {
+                state.pending.push(pending(file, b, format!("{name} already exists")));
                 continue;
             }
             if done.is_empty() {
@@ -59,6 +68,9 @@ pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Categor
     let Some(b) = blocks.iter().find(|b| b.balanced && !leaves_file(b) && hash(&b.text) == h) else {
         return Ok(false);
     };
+    if shell.target_name(cat, &b.text).is_none() {
+        return Ok(false);
+    }
     backup(p, file, &current)?;
     state.messages.push(place(p, shell, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
     rewrite(p, file, &current, &[b])?;
@@ -113,10 +125,11 @@ pub(crate) fn place(
     cat: Category,
     skip: Option<&str>,
 ) -> Result<String> {
-    if let Some(other) = dup_in(&rc_files(p)?, text, skip) {
+    if let Some(other) = dup_in(&rc_files(p, shell)?, text, skip) {
         return Ok(format!("rc-sort: removed duplicate {name} block from {from} (already in {other})"));
     }
-    let path = shell.target(p, cat);
+    let target_name = shell.target_name(cat, text).context("the block is not one function")?;
+    let path = shell.rc_dir(p).join(&target_name);
     let mut target = read_opt(&path)?.unwrap_or_default();
     if !target.is_empty() {
         if !target.ends_with('\n') {
@@ -127,14 +140,27 @@ pub(crate) fn place(
     target.push_str(&normalize(text));
     target.push('\n');
     atomic_write(&path, &target)?;
-    Ok(format!("rc-sort: moved {name} block from {from} to {}", cat.file_name()))
+    Ok(format!("rc-sort: moved {name} block from {from} to {target_name}"))
 }
 
 /// `(name, text)` of every file in `~/.bashrc.d` the sorter reads, sorted by name: regular,
 /// UTF-8 files, not the hook or our temp files.
-pub(crate) fn rc_files(p: &Paths) -> Result<Vec<(String, String)>> {
-    let dir = p.rc_dir();
-    let entries = match fs::read_dir(&dir) {
+pub(crate) fn rc_files(p: &Paths, shell: Shell) -> Result<Vec<(String, String)>> {
+    let dir = shell.rc_dir(p);
+    let mut out = match shell {
+        Shell::Bash => list(&dir, "")?,
+        Shell::Fish => [list(&dir.join("conf.d"), "conf.d/")?, list(&dir.join("functions"), "functions/")?]
+            .concat()
+            .into_iter()
+            .filter(|(n, _)| n.ends_with(".fish"))
+            .collect(),
+    };
+    out.sort();
+    Ok(out)
+}
+
+fn list(dir: &std::path::Path, prefix: &str) -> Result<Vec<(String, String)>> {
+    let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
@@ -147,16 +173,10 @@ pub(crate) fn rc_files(p: &Paths) -> Result<Vec<(String, String)>> {
             continue;
         }
         if let Ok(text) = fs::read_to_string(e.path()) {
-            out.push((name, text));
+            out.push((format!("{prefix}{name}"), text));
         }
     }
-    out.sort();
     Ok(out)
-}
-
-/// One of aliases.sh, exports.sh, functions.sh, tools.sh.
-pub fn is_category_file(name: &str) -> bool {
-    Category::ALL.iter().any(|c| c.file_name() == name)
 }
 
 /// The first file (other than `skip`) that already holds `text` as whole lines.
@@ -171,6 +191,7 @@ pub(crate) fn dup_in<'a>(files: &'a [(String, String)], text: &str, skip: Option
 /// already names. aliases/exports/functions.sh are left out: `alias cb="cargo build"` is
 /// not a cargo setup.
 pub(crate) fn tool_clash(
+    shell: Shell,
     files: &[(String, String)],
     text: &str,
     skip: Option<&str>,
@@ -179,7 +200,7 @@ pub(crate) fn tool_clash(
     files
         .iter()
         .filter(|(n, _)| Some(n.as_str()) != skip)
-        .filter(|(n, _)| n == Category::Tools.file_name() || !is_category_file(n))
+        .filter(|(n, _)| shell.target_name(Category::Tools, "").as_deref() == Some(n) || !shell.is_category_file(n))
         .find_map(|(n, t)| {
             let theirs = tools_named(t);
             ours.iter().find(|x| theirs.contains(x)).map(|&tool| (n.clone(), tool))
