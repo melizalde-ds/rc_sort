@@ -63,7 +63,7 @@ pub fn classify_bash(b: &Block) -> Option<Category> {
     {
         Some(Category::Tools)
     } else if code.iter().all(|t| t.starts_with("export ") && t.contains('=')) {
-        Some(Category::Exports)
+        Some(exports_or_tools(&code))
     } else {
         None
     }
@@ -83,7 +83,7 @@ pub fn classify_fish(b: &Block) -> Option<Category> {
     {
         Some(Category::Tools)
     } else if code.iter().all(|t| fish_exports(t)) {
-        Some(Category::Exports)
+        Some(exports_or_tools(&code))
     } else {
         None
     }
@@ -115,6 +115,17 @@ pub fn fish_defined_names(text: &str) -> Vec<&str> {
 
 pub fn runs_a_command(b: &Block) -> bool {
     code_lines(b).iter().any(|t| runs_command(t))
+}
+
+fn exports_or_tools(code: &[&str]) -> Category {
+    if code.iter().any(|t| uses_a_variable_besides_home(t)) { Category::Tools } else { Category::Exports }
+}
+
+fn uses_a_variable_besides_home(t: &str) -> bool {
+    t.split('$').skip(1).any(|rest| {
+        let name: String = rest.trim_start_matches('{').chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        !name.is_empty() && name != "HOME"
+    })
 }
 
 fn code_lines(b: &Block) -> Vec<&str> {
@@ -377,6 +388,26 @@ mod tests {
     fn fish_names_from_alias_abbr_and_function() {
         let text = "alias ls='eza -al'\nalias ll \"eza -l\"\nabbr -a gs git status\nfunction backup --argument f\nend\n#function off";
         assert_eq!(fish_defined_names(text), vec!["ls", "ll", "gs", "backup"]);
+    }
+
+    #[test]
+    fn export_using_a_tool_variable_is_tools() {
+        assert_eq!(class("export JAVA_HOME=\"$SDKMAN_DIR/candidates/java/current\""), Some(Tools));
+    }
+
+    #[test]
+    fn export_using_home_is_exports() {
+        assert_eq!(class("export GOPATH=\"$HOME/go\"\nexport X=\"${HOME}/x\""), Some(Exports));
+    }
+
+    #[test]
+    fn fish_export_using_a_tool_variable_is_tools() {
+        assert_eq!(fish_class("set -gx JAVA_HOME $SDKMAN_DIR/java"), Some(Tools));
+    }
+
+    #[test]
+    fn fish_export_using_home_is_exports() {
+        assert_eq!(fish_class("set -gx GOPATH $HOME/go"), Some(Exports));
     }
 
     #[test]
