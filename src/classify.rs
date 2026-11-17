@@ -48,12 +48,7 @@ pub fn classify_bash(b: &Block) -> Option<Category> {
     if !b.balanced || leaves_file(b) {
         return None;
     }
-    let code: Vec<&str> = b
-        .text
-        .lines()
-        .map(str::trim)
-        .filter(|t| !t.is_empty() && !t.starts_with('#'))
-        .collect();
+    let code = code_lines(&b.text);
     if code.iter().any(|t| defines_function(t)) {
         Some(Category::Functions)
     } else if code.iter().all(|t| t.starts_with("alias ")) {
@@ -73,7 +68,7 @@ pub fn classify_fish(b: &Block) -> Option<Category> {
     if !b.balanced || leaves_file(b) {
         return None;
     }
-    let code = code_lines(b);
+    let code = code_lines(&b.text);
     if code.iter().any(|t| t.starts_with("function ")) {
         function_name(&b.text).map(|_| Category::Functions)
     } else if code.iter().all(|t| t.starts_with("alias ") || t.starts_with("abbr ")) {
@@ -90,7 +85,7 @@ pub fn classify_fish(b: &Block) -> Option<Category> {
 }
 
 pub fn function_name(text: &str) -> Option<&str> {
-    let code: Vec<&str> = text.lines().map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('#')).collect();
+    let code = code_lines(text);
     let single = code.iter().filter(|t| t.starts_with("function ")).count() == 1;
     let wraps_all = code.first()?.starts_with("function ") && code.last() == Some(&"end");
     if !(single && wraps_all) {
@@ -114,7 +109,7 @@ pub fn fish_defined_names(text: &str) -> Vec<&str> {
 }
 
 pub fn runs_a_command(b: &Block) -> bool {
-    code_lines(b).iter().any(|t| runs_command(t))
+    code_lines(&b.text).iter().any(|t| runs_command(t))
 }
 
 fn exports_or_tools(code: &[&str]) -> Category {
@@ -128,8 +123,8 @@ fn uses_a_variable_besides_home(t: &str) -> bool {
     })
 }
 
-fn code_lines(b: &Block) -> Vec<&str> {
-    b.text.lines().map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('#')).collect()
+fn code_lines(text: &str) -> Vec<&str> {
+    text.lines().map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('#')).collect()
 }
 
 fn fish_set_name(t: &str) -> Option<&str> {
@@ -151,12 +146,7 @@ fn fish_exports(t: &str) -> bool {
 /// True if the block can `return`/`exit` outside a function body. Sourced from a
 /// `~/.bashrc.d` file, that stops the rest of the file, so it must never be merged into one.
 pub fn leaves_file(b: &Block) -> bool {
-    let code: Vec<&str> = b
-        .text
-        .lines()
-        .map(str::trim)
-        .filter(|t| !t.is_empty() && !t.starts_with('#'))
-        .collect();
+    let code = code_lines(&b.text);
     !code.iter().any(|t| defines_function(t))
         && code.iter().any(|t| {
             t.split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
