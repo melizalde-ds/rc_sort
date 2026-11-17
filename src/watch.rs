@@ -13,16 +13,19 @@ pub fn run_watch(p: &Paths) -> Result<()> {
     pass(p);
     let (tx, rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_secs(1), tx).context("starting file watcher")?;
-    debouncer
-        .watcher()
-        .watch(&p.home, RecursiveMode::NonRecursive)
-        .with_context(|| format!("watching {}", p.home.display()))?;
+    let watched: Vec<_> = Shell::ALL.iter().flat_map(|s| s.watched()).map(|w| p.home.join(w)).collect();
+    let mut dirs: Vec<_> = watched.iter().filter_map(|w| w.parent()).filter(|d| d.is_dir()).collect();
+    dirs.dedup();
+    for dir in dirs {
+        debouncer
+            .watcher()
+            .watch(dir, RecursiveMode::NonRecursive)
+            .with_context(|| format!("watching {}", dir.display()))?;
+    }
     for batch in rx {
         match batch {
             Ok(events) => {
-                let ours = events.iter().any(|e| {
-                    e.path.file_name().is_some_and(|n| Shell::ALL.iter().flat_map(|s| s.watched()).any(|w| n == *w))
-                });
+                let ours = events.iter().any(|e| watched.contains(&e.path));
                 // Our own rewrite triggers one more pass, which finds nothing to do.
                 if ours {
                     pass(p);

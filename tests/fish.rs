@@ -204,3 +204,50 @@ fn alias_with_a_new_name_still_moves() {
     // Assert
     assert_eq!(read(&p, "conf.d/aliases.fish").unwrap(), "abbr -a gs git status\n");
 }
+
+#[test]
+fn install_writes_the_fish_hook_when_fish_is_set_up() {
+    use rc_sort::install::install_files;
+    // Arrange
+    let p = setup("install");
+
+    // Act
+    install_files(&p).unwrap();
+
+    // Assert
+    let hook = read(&p, "conf.d/zz-rc-sort.fish").unwrap();
+    assert!(hook.contains("rc-sort prompt"), "{hook}");
+}
+
+#[test]
+fn uninstall_removes_the_fish_hook() {
+    use rc_sort::install::{install_files, uninstall_files};
+    // Arrange
+    let p = setup("uninstall");
+    install_files(&p).unwrap();
+
+    // Act
+    uninstall_files(&p).unwrap();
+
+    // Assert
+    assert_eq!(read(&p, "conf.d/zz-rc-sort.fish"), None);
+}
+
+#[test]
+fn watch_sorts_fish_changes() {
+    // Arrange
+    let p = setup("watch");
+    let p2 = p.clone();
+    std::thread::spawn(move || rc_sort::watch::run_watch(&p2));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    // Act
+    append(&p, "set -gx EDITOR nvim\n");
+
+    // Assert
+    let sorted = (0..50).any(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        read(&p, "conf.d/exports.fish").is_some_and(|s| s.contains("EDITOR"))
+    });
+    assert!(sorted);
+}

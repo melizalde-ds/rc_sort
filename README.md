@@ -9,6 +9,14 @@ about in your next terminal. Design: [docs/design.md](docs/design.md).
 Bash is only sorted where the default `/etc/skel/.bashrc` loads `~/.bashrc.d` (Fedora does).
 Where it doesn't (Arch, CachyOS), `~/.bashrc` is left alone and `install` says so.
 
+Fish works the same way for `~/.config/fish/config.fish`. Its default is
+`/etc/skel/.config/fish/config.fish`, or fish's own first-run template where the distro ships
+none. Added blocks move to `conf.d/aliases.fish`, `conf.d/exports.fish` and `conf.d/tools.fish`,
+and each function to its own `functions/<name>.fish`. A block that defines an alias or function
+the distro config also defines (CachyOS's `cachyos-config.fish`) is asked about instead: that
+config loads after `conf.d`, so it would win. `install` adds `conf.d/zz-rc-sort.fish` when
+`~/.config/fish` exists.
+
 ## Install
 
 ```bash

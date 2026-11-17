@@ -9,6 +9,7 @@ use std::fs;
 
 /// The shell hook, installed into `~/.bashrc.d/`. Never sorted.
 pub const HOOK: &str = "zz-rc-sort.sh";
+pub const FISH_HOOK: &str = "zz-rc-sort.fish";
 
 /// One pass over both watched files: move sure blocks, record unsure ones as pending.
 pub fn run_once(p: &Paths) -> Result<()> {
@@ -218,7 +219,7 @@ fn list(dir: &std::path::Path, prefix: &str) -> Result<Vec<(String, String)>> {
     for e in entries {
         let e = e.with_context(|| format!("reading {}", dir.display()))?;
         let name = e.file_name().to_string_lossy().into_owned();
-        if name == HOOK || name.ends_with(".rc-sort.tmp") || !e.path().is_file() {
+        if name == HOOK || name == FISH_HOOK || name.ends_with(".rc-sort.tmp") || !e.path().is_file() {
             continue;
         }
         if let Ok(text) = fs::read_to_string(e.path()) {

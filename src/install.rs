@@ -3,7 +3,7 @@
 //! `rc-sort uninstall` undoes that. Your sorted files and the backups stay.
 
 use crate::shell::Shell;
-use crate::sort::HOOK;
+use crate::sort::{FISH_HOOK, HOOK};
 use crate::state::{atomic_write, read_opt, Paths};
 use anyhow::{bail, Context, Result};
 use std::io::Write;
@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 const HOOK_TEXT: &str = include_str!("../dist/zz-rc-sort.sh");
+const FISH_HOOK_TEXT: &str = include_str!("../dist/zz-rc-sort.fish");
 const UNIT_TEXT: &str = include_str!("../dist/rc-sort.service");
 pub const UNIT: &str = "rc-sort.service";
 
@@ -23,6 +24,10 @@ pub fn unit_path(p: &Paths) -> PathBuf {
     p.home.join(".config/systemd/user").join(UNIT)
 }
 
+fn fish_hook_path(p: &Paths) -> PathBuf {
+    Shell::Fish.rc_dir(p).join("conf.d").join(FISH_HOOK)
+}
+
 /// Writes the hook and the unit if they differ. Returns one line per file written.
 pub fn install_files(p: &Paths) -> Result<Vec<String>> {
     let mut done = Vec::new();
@@ -30,6 +35,9 @@ pub fn install_files(p: &Paths) -> Result<Vec<String>> {
     match Shell::Bash.skip_reason(p)? {
         Some(why) => done.push(format!("rc-sort: {why}")),
         None => files.insert(0, (p.rc_dir().join(HOOK), HOOK_TEXT)),
+    }
+    if Shell::Fish.rc_dir(p).is_dir() {
+        files.push((fish_hook_path(p), FISH_HOOK_TEXT));
     }
     for (path, text) in files {
         if read_opt(&path)?.as_deref() != Some(text) {
@@ -69,7 +77,7 @@ pub fn run_install(p: &Paths, out: &mut impl Write) -> Result<()> {
 /// Removes the hook and the unit if present. Returns one line per file removed.
 pub fn uninstall_files(p: &Paths) -> Result<Vec<String>> {
     let mut done = Vec::new();
-    for path in [p.rc_dir().join(HOOK), unit_path(p)] {
+    for path in [p.rc_dir().join(HOOK), fish_hook_path(p), unit_path(p)] {
         match std::fs::remove_file(&path) {
             Ok(()) => done.push(format!("rc-sort: removed {}", path.display())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
