@@ -24,7 +24,7 @@ fn setup(name: &str) -> Paths {
         fs::write(home.join(f), skel(f)).unwrap();
     }
     fs::write(home.join(".bashrc.d/tools.sh"), "# tools\n").unwrap();
-    Paths { home, skel: skel_dir() }
+    Paths { home, skel: skel_dir(), fish_vendor_conf: Vec::new() }
 }
 
 fn read(p: &Paths, rel: &str) -> String {

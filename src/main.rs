@@ -9,7 +9,12 @@ use std::path::PathBuf;
 
 fn main() -> Result<()> {
     let home = std::env::var_os("HOME").context("HOME is not set")?;
-    let p = Paths { home: PathBuf::from(home), skel: PathBuf::from("/etc/skel") };
+    let p = Paths {
+        home: PathBuf::from(home),
+        skel: PathBuf::from("/etc/skel"),
+        // shortcut: the usual system folders, not every $XDG_DATA_DIRS entry fish reads.
+        fish_vendor_conf: vec![PathBuf::from("/etc/fish/conf.d"), PathBuf::from("/usr/share/fish/vendor_conf.d")],
+    };
     match std::env::args().nth(1).as_deref() {
         Some("watch") => run_watch(&p),
         Some("once") => run_once(&p),

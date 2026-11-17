@@ -67,7 +67,7 @@ pub fn run_once(p: &Paths) -> Result<()> {
                     state.pending.push(pending(file, b, format!("{name} already exists")));
                     continue;
                 }
-                if let Some(note) = later_clash(shell, &files, &name, &b.text) {
+                if let Some(note) = later_clash(p, shell, &files, &name, &b.text)? {
                     state.pending.push(pending(file, b, note));
                     continue;
                 }
@@ -293,17 +293,26 @@ pub(crate) fn tool_clash(
 /// A name `text` defines that a file loading after `target` defines too. In the watched
 /// file the block ran last; moved to `target`, that later file would win instead.
 /// shortcut: byte order stands in for the glob's locale order, fine for usual lowercase names.
-fn later_clash(shell: Shell, files: &[(String, String)], target: &str, text: &str) -> Option<String> {
+fn later_clash(p: &Paths, shell: Shell, files: &[(String, String)], target: &str, text: &str) -> Result<Option<String>> {
     let ours = shell.defined_names(text);
+    // (load-order key, name shown, text): system conf.d files sort by name among ours.
+    let mut all: Vec<(String, String, String)> = files.iter().map(|(n, t)| (n.clone(), n.clone(), t.clone())).collect();
+    if shell == Shell::Fish {
+        for dir in &p.fish_vendor_conf {
+            for (n, t) in list(dir, "")?.into_iter().filter(|(n, _)| n.ends_with(".fish")) {
+                all.push((format!("conf.d/{n}"), dir.join(&n).display().to_string(), t));
+            }
+        }
+    }
     let loads_later = |n: &str| match shell {
         Shell::Bash => n > target,
         // A function defined in conf.d is never replaced by its autoload file.
         Shell::Fish => n.starts_with("conf.d/") && (target.starts_with("functions/") || n > target),
     };
-    files.iter().filter(|(n, _)| loads_later(n)).find_map(|(n, t)| {
+    Ok(all.iter().filter(|(key, _, _)| loads_later(key)).find_map(|(_, shown, t)| {
         let theirs = shell.defined_names(t);
-        ours.iter().find(|x| theirs.contains(x)).map(|x| format!("{n} loads later and also defines {x}"))
-    })
+        ours.iter().find(|x| theirs.contains(x)).map(|x| format!("{shown} loads later and also defines {x}"))
+    }))
 }
 
 /// True if `block` appears in `target` as whole lines (ignoring trailing spaces).
@@ -356,7 +365,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!("rc-sort-test-{}-rewrite", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
-        let p = Paths { home, skel: "/nonexistent".into() };
+        let p = Paths { home, skel: "/nonexistent".into(), fish_vendor_conf: Vec::new() };
         // The pass read "a\n"; an installer appended "b" before the rewrite.
         fs::write(p.home.join(".bashrc"), "a\nb\n").unwrap();
         let block = Block { lines: vec![0], text: "a".into(), balanced: true };

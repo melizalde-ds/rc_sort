@@ -845,7 +845,7 @@ mod tests {
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join(".bashrc.d")).unwrap();
         fs::write(home.join(".bashrc.d/30-x.sh"), FILE).unwrap();
-        Paths { home, skel: PathBuf::from("/nonexistent") }
+        Paths { home, skel: PathBuf::from("/nonexistent"), fish_vendor_conf: Vec::new() }
     }
 
     fn key(c: KeyCode) -> KeyEvent {

@@ -11,7 +11,7 @@ fn setup(name: &str) -> Paths {
     let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(home.join(".config/fish")).unwrap();
     fs::copy(skel.join(CONFIG), home.join(CONFIG)).unwrap();
-    Paths { home, skel }
+    Paths { home, skel, fish_vendor_conf: Vec::new() }
 }
 
 fn default_config(p: &Paths) -> String {
@@ -405,4 +405,22 @@ fn watch_sorts_after_the_fish_folder_is_restored() {
         read(&p, "conf.d/exports.fish").is_some_and(|s| s.contains("EDITOR"))
     });
     assert!(sorted);
+}
+
+#[test]
+fn export_a_later_system_conf_d_file_also_sets_is_asked() {
+    // Arrange
+    let p = setup("vendor-clash");
+    let vendor = p.home.join("vendor_conf.d");
+    fs::create_dir_all(&vendor).unwrap();
+    fs::write(vendor.join("vapoursynth.fish"), "set --export --global VSSCRIPT_PATH /usr/lib/x.so\n").unwrap();
+    let p = Paths { fish_vendor_conf: vec![vendor], ..p };
+    append(&p, "set -gx VSSCRIPT_PATH /opt/x.so\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    let note = State::load(&p).unwrap().pending[0].note.clone();
+    assert!(note.ends_with("vendor_conf.d/vapoursynth.fish loads later and also defines VSSCRIPT_PATH"), "{note}");
 }

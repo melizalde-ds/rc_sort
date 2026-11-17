@@ -11,6 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Paths {
     pub home: PathBuf,
     pub skel: PathBuf,
+    /// System fish `conf.d` folders; they load in name order together with the user's.
+    pub fish_vendor_conf: Vec<PathBuf>,
 }
 
 impl Paths {
@@ -174,7 +176,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!("rc-sort-test-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
-        Paths { home, skel: PathBuf::from("/nonexistent") }
+        Paths { home, skel: PathBuf::from("/nonexistent"), fish_vendor_conf: Vec::new() }
     }
 
     #[test]

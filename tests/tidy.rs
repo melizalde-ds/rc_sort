@@ -28,7 +28,7 @@ fn setup(name: &str, rc: &[(&str, &str)]) -> Paths {
     for (n, t) in rc {
         fs::write(home.join(".bashrc.d").join(n), t).unwrap();
     }
-    Paths { home, skel: skel_dir() }
+    Paths { home, skel: skel_dir(), fish_vendor_conf: Vec::new() }
 }
 
 fn rc(p: &Paths, name: &str) -> Option<String> {
@@ -256,7 +256,7 @@ fn arch_setup(name: &str) -> Paths {
     for f in [".bashrc", ".bash_profile"] {
         fs::copy(skel.join(f), home.join(f)).unwrap();
     }
-    Paths { home, skel }
+    Paths { home, skel, fish_vendor_conf: Vec::new() }
 }
 
 #[test]
