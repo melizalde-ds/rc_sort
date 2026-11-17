@@ -88,6 +88,10 @@ pub fn block_name(b: &Block) -> String {
 
 /// The watched file's text, its added lines and blocks; None if it or its default is missing.
 fn scan(p: &Paths, shell: Shell, file: &str) -> Result<Option<(String, Vec<Block>)>> {
+    if let Some(why) = shell.skip_reason(p)? {
+        eprintln!("rc-sort: {why}");
+        return Ok(None);
+    }
     let Some(current) = read_opt(&p.home.join(file))? else { return Ok(None) };
     let Some(default) = read_opt(&p.skel.join(file))? else {
         eprintln!("rc-sort: no default {}, skipping ~/{file}", p.skel.join(file).display());

@@ -6,6 +6,9 @@ When an installer (or you) adds lines, they move into `~/.bashrc.d/`
 and the next terminal tells you. Blocks it can't place are left alone and asked
 about in your next terminal. Design: [docs/design.md](docs/design.md).
 
+Bash is only sorted where the default `/etc/skel/.bashrc` loads `~/.bashrc.d` (Fedora does).
+Where it doesn't (Arch, CachyOS), `~/.bashrc` is left alone and `install` says so.
+
 ## Install
 
 ```bash

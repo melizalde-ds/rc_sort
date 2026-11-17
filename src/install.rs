@@ -2,6 +2,7 @@
 //! the service. Safe to run again after `cargo install` of a new version.
 //! `rc-sort uninstall` undoes that. Your sorted files and the backups stay.
 
+use crate::shell::Shell;
 use crate::sort::HOOK;
 use crate::state::{atomic_write, read_opt, Paths};
 use anyhow::{bail, Context, Result};
@@ -25,7 +26,12 @@ pub fn unit_path(p: &Paths) -> PathBuf {
 /// Writes the hook and the unit if they differ. Returns one line per file written.
 pub fn install_files(p: &Paths) -> Result<Vec<String>> {
     let mut done = Vec::new();
-    for (path, text) in [(p.rc_dir().join(HOOK), HOOK_TEXT), (unit_path(p), UNIT_TEXT)] {
+    let mut files = vec![(unit_path(p), UNIT_TEXT)];
+    match Shell::Bash.skip_reason(p)? {
+        Some(why) => done.push(format!("rc-sort: {why}")),
+        None => files.insert(0, (p.rc_dir().join(HOOK), HOOK_TEXT)),
+    }
+    for (path, text) in files {
         if read_opt(&path)?.as_deref() != Some(text) {
             atomic_write(&path, text)?;
             done.push(format!("rc-sort: wrote {}", path.display()));

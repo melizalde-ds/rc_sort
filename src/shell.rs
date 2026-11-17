@@ -1,6 +1,7 @@
 use crate::blocks::{bash_depth, Block};
 use crate::classify::{classify_bash, Category};
-use crate::state::Paths;
+use crate::state::{read_opt, Paths};
+use anyhow::Result;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -18,6 +19,17 @@ impl Shell {
     pub fn watched(self) -> &'static [&'static str] {
         match self {
             Shell::Bash => &[".bashrc", ".bash_profile"],
+        }
+    }
+
+    pub fn skip_reason(self, p: &Paths) -> Result<Option<String>> {
+        match self {
+            Shell::Bash => {
+                let path = p.skel.join(".bashrc");
+                Ok(read_opt(&path)?
+                    .filter(|text| !text.contains(".bashrc.d"))
+                    .map(|_| format!("{} never loads ~/.bashrc.d, so bash is not sorted", path.display())))
+            }
         }
     }
 

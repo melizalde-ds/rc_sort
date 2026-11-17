@@ -247,3 +247,43 @@ fn uninstall_removes_only_hook_and_unit() {
     assert_eq!(rc(&p, "tools.sh").unwrap(), NODE, "sorted files stay");
     assert!(uninstall_files(&p).unwrap().is_empty(), "second run is a no-op");
 }
+
+fn arch_setup(name: &str) -> Paths {
+    let skel = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/skel-arch");
+    let home = std::env::temp_dir().join(format!("rc-sort-arch-{}-{name}", std::process::id()));
+    let _ = fs::remove_dir_all(&home);
+    fs::create_dir_all(&home).unwrap();
+    for f in [".bashrc", ".bash_profile"] {
+        fs::copy(skel.join(f), home.join(f)).unwrap();
+    }
+    Paths { home, skel }
+}
+
+#[test]
+fn bash_is_not_sorted_where_the_default_never_loads_bashrc_d() {
+    // Arrange
+    let p = arch_setup("once");
+    let bashrc = format!("{}\nalias g=git\n", fs::read_to_string(p.skel.join(".bashrc")).unwrap());
+    fs::write(p.home.join(".bashrc"), &bashrc).unwrap();
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(fs::read_to_string(p.home.join(".bashrc")).unwrap(), bashrc);
+    assert_eq!(rc(&p, "aliases.sh"), None);
+}
+
+#[test]
+fn install_skips_the_bash_hook_where_the_default_never_loads_bashrc_d() {
+    use rc_sort::install::install_files;
+    // Arrange
+    let p = arch_setup("install");
+
+    // Act
+    let lines = install_files(&p).unwrap();
+
+    // Assert
+    assert_eq!(rc(&p, "zz-rc-sort.sh"), None);
+    assert!(lines.iter().any(|l| l.contains("never loads ~/.bashrc.d")), "{lines:?}");
+}
