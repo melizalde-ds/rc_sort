@@ -33,6 +33,8 @@ rc-sort install   # writes the hook + systemd unit, starts the service
 ## Use
 
 - `rc-sort once`: one pass by hand.
+- `rc-sort completions <bash|zsh|fish|elvish|powershell>`: print a tab-completion script, e.g.
+  `rc-sort completions fish > ~/.config/fish/completions/rc-sort.fish`.
 - `rc-sort tidy [--plain] [file-or-dir]`: sort files already in `~/.bashrc.d` and `~/.config/fish/conf.d` (default) or a
   file you name into the four files. In a terminal it opens a box below the prompt: every block,
   grouped by file, with where it goes and a preview; `Tab` jumps to the next unsure block,
