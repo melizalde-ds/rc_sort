@@ -5,7 +5,7 @@
 
 use crate::classify::Category;
 use crate::state::Paths;
-use crate::tidy::{apply, plan, Act, Item, Plan};
+use crate::tidy::{apply, plan, reload_hint, Act, Item, Plan};
 use anyhow::Result;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -786,7 +786,7 @@ pub(crate) fn summary(plan: &Plan, skipped: Option<&[usize]>, backups: &str, wid
         ));
     }
     out.push(format!("{} done {} backups in {backups}", g.end, g.dot));
-    out.push("  open shells keep the old setup until you run: source ~/.bashrc".into());
+    out.push(format!("  {}", reload_hint(plan)));
     out
 }
 
@@ -1107,6 +1107,22 @@ mod tests {
         let s = summary(&plan, Some(&[]), "~/b", 80, &ASCII);
         assert!(s.iter().all(|l| l.is_ascii()), "{s:?}");
         assert_eq!(paint(&s[1], &ASCII, false), s[1]);
+    }
+
+    #[test]
+    fn summary_after_tidying_fish_says_to_restart_fish() {
+        // Arrange
+        let p = setup("summary-fish");
+        fs::remove_dir_all(p.home.join(".bashrc.d")).unwrap();
+        fs::create_dir_all(p.home.join(".config/fish/conf.d")).unwrap();
+        fs::write(p.home.join(".config/fish/conf.d/x.fish"), "alias g git\n").unwrap();
+        let plan = plan(&p, None, &mut Vec::new()).unwrap();
+
+        // Act
+        let s = summary(&plan, Some(&[]), "~/b", 80, &UNICODE);
+
+        // Assert
+        assert_eq!(s.last().unwrap(), "  open shells keep the old setup until you run: exec fish");
     }
 
     #[test]

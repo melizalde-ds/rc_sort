@@ -347,14 +347,23 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
         writeln!(out, "rc-sort: kept {} block(s) in place; tidy won't ask about them again", kept.len())?;
     }
     writeln!(out, "rc-sort: done; backups in {}", p.state_dir().join("backups").display())?;
-    let reload = |shell| match shell {
-        Shell::Bash => "source ~/.bashrc",
-        Shell::Fish => "exec fish",
-    };
-    let mut reloads: Vec<&str> = plan.srcs.iter().map(|s| reload(s.shell)).collect();
-    reloads.dedup();
-    writeln!(out, "rc-sort: open shells keep the old setup until you run: {}", reloads.join(" or "))?;
+    writeln!(out, "rc-sort: {}", reload_hint(plan))?;
     Ok(skipped)
+}
+
+/// How to load the new setup in shells already open, for each shell the plan touched.
+pub(crate) fn reload_hint(plan: &Plan) -> String {
+    let mut reloads: Vec<&str> = plan
+        .srcs
+        .iter()
+        .map(|s| match s.shell {
+            Shell::Bash => "source ~/.bashrc",
+            Shell::Fish => "exec fish",
+        })
+        .collect();
+    reloads.sort_unstable();
+    reloads.dedup();
+    format!("open shells keep the old setup until you run: {}", reloads.join(" or "))
 }
 
 /// Adds `kept` to the saved state. Caller holds the lock.
