@@ -13,8 +13,11 @@ pub fn run_watch(p: &Paths) -> Result<()> {
     pass(p);
     let (tx, rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_secs(1), tx).context("starting file watcher")?;
-    let watched: Vec<_> = Shell::ALL.iter().flat_map(|s| s.watched()).map(|w| p.home.join(w)).collect();
+    let mut watched: Vec<_> = Shell::ALL.iter().flat_map(|s| s.watched()).map(|w| p.home.join(w)).collect();
+    let real: Vec<_> = watched.iter().filter_map(|w| std::fs::canonicalize(w).ok()).collect();
+    watched.extend(real);
     let mut dirs: Vec<_> = watched.iter().filter_map(|w| w.parent()).filter(|d| d.is_dir()).collect();
+    dirs.sort();
     dirs.dedup();
     for dir in dirs {
         debouncer

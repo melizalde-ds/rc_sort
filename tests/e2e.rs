@@ -401,3 +401,26 @@ fn half_typed_alias_is_asked() {
     // Assert
     assert_eq!(State::load(&p).unwrap().pending[0].note, "bash -n finds a syntax error in it");
 }
+
+#[test]
+fn watch_sees_edits_through_a_symlinked_bashrc() {
+    // Arrange
+    let p = setup("symlink-watch");
+    let dotfiles = p.home.join("dotfiles");
+    fs::create_dir_all(&dotfiles).unwrap();
+    fs::rename(p.home.join(".bashrc"), dotfiles.join(".bashrc")).unwrap();
+    std::os::unix::fs::symlink(dotfiles.join(".bashrc"), p.home.join(".bashrc")).unwrap();
+    let p2 = p.clone();
+    std::thread::spawn(move || rc_sort::watch::run_watch(&p2));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    // Act
+    append(&p, ".bashrc", "alias linked=\"ls\"\n");
+
+    // Assert
+    let sorted = (0..50).any(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        fs::read_to_string(p.home.join(".bashrc.d/aliases.sh")).is_ok_and(|s| s.contains("alias linked"))
+    });
+    assert!(sorted);
+}
