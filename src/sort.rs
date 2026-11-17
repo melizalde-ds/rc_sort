@@ -72,6 +72,18 @@ pub fn run_once(p: &Paths) -> Result<()> {
                     continue;
                 }
             }
+            // Lines above that stay in the file lose to the block now, and would win once it moves.
+            let earlier: String = current
+                .lines()
+                .take(b.lines[0])
+                .enumerate()
+                .filter(|(i, _)| !done.iter().any(|d| d.lines.contains(i)))
+                .map(|(_, l)| format!("{l}\n"))
+                .collect();
+            if let Some(x) = shell.shared_name(&b.text, &earlier) {
+                state.pending.push(pending(file, b, format!("an earlier line in ~/{file} also defines {x}")));
+                continue;
+            }
             if done.is_empty() {
                 backup(p, file, &current)?;
             }

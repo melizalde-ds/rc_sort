@@ -284,6 +284,21 @@ fn tidy_sorts_conf_d_files_into_tools_in_order() {
 }
 
 #[test]
+fn export_an_earlier_block_left_in_config_also_sets_is_asked() {
+    // Arrange
+    let p = setup("earlier-line-clash");
+    append(&p, "set -gx EDITOR vim\nset -g fish_greeting\n\nset -gx EDITOR nvim\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    let pending = State::load(&p).unwrap().pending;
+    let nvim = pending.iter().find(|x| x.text == "set -gx EDITOR nvim").map(|x| x.note.as_str());
+    assert_eq!(nvim, Some("an earlier line in ~/.config/fish/config.fish also defines EDITOR"));
+}
+
+#[test]
 fn tidy_asks_about_a_move_past_a_file_that_sets_the_same_variable() {
     // Arrange
     let p = setup("tidy-order");
