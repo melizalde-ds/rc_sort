@@ -126,7 +126,7 @@ default, and the next terminal says what happened.
 - State in `~/.local/state/rc-sort/`: `pending.json`, `messages`, `kept`, `backups/`.
   Backups are never pruned automatically.
 - Single binary with subcommands: `watch` (service), `prompt` (hook), `once` (one pass,
-  for testing). Installed with `cargo install --path .` to `~/.cargo/bin`.
+  for testing). Installed with `cargo install --locked --path .` to `~/.cargo/bin`.
 - Crates: `notify` (+ debouncer), `similar` (diff), `serde_json`, `anyhow` (errors; user request 2026-11-05). Nothing else unless needed.
 - Service and hook both touch the state files: every write is atomic, and both take
   an exclusive lock on `~/.local/state/rc-sort/lock` while reading-modifying-writing.

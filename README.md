@@ -21,7 +21,7 @@ show up as not sorted; keep them (`k` in `tidy`), since the manager rewrites the
 ## Install
 
 ```bash
-cargo install --path .
+cargo install --locked --path .
 rc-sort tidy      # optional: sort what's already in ~/.bashrc.d first
 rc-sort install   # writes the hook + systemd unit, starts the service
 ```
