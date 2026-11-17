@@ -15,7 +15,8 @@ none. Added blocks move to `conf.d/aliases.fish`, `conf.d/exports.fish` and `con
 and each function to its own `functions/<name>.fish`. A block that defines an alias or function
 the distro config also defines (CachyOS's `cachyos-config.fish`) is asked about instead: that
 config loads after `conf.d`, so it would win. `install` adds `conf.d/zz-rc-sort.fish` when
-`~/.config/fish` exists.
+`~/.config/fish` exists. Files a fish plugin manager (fisher, oh-my-fish) writes into `conf.d`
+show up as not sorted; keep them (`k` in `tidy`), since the manager rewrites them on update.
 
 ## Install
 
