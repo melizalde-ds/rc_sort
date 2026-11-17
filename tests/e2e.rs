@@ -424,3 +424,22 @@ fn watch_sees_edits_through_a_symlinked_bashrc() {
     });
     assert!(sorted);
 }
+
+#[test]
+fn watch_goes_idle_when_nothing_changes() {
+    // Arrange
+    let p = setup("idle-watch");
+    let p2 = p.clone();
+    std::thread::spawn(move || rc_sort::watch::run_watch(&p2));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    read(&p, ".bashrc");
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let state = p.state_dir().join("pending.json");
+    let before = fs::metadata(&state).unwrap().modified().unwrap();
+
+    // Act
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+
+    // Assert
+    assert_eq!(fs::metadata(&state).unwrap().modified().unwrap(), before, "a pass ran with nothing changed");
+}
