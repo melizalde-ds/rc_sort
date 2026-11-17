@@ -5,7 +5,7 @@
 use crate::blocks::{split_blocks, Block};
 use crate::classify::{leaves_file, tools_named, Category};
 use crate::prompt::{ask, Answer};
-use crate::sort::{block_name, dup_in, place, rc_files, tool_clash, without, FISH_HOOK, HOOK};
+use crate::sort::{block_name, dup_in, order_clash, place, rc_files, tool_clash, without, FISH_HOOK, HOOK};
 use crate::state::{atomic_write, backup, hash, load_kept, lock, Paths, State};
 use crate::shell::Shell;
 use anyhow::{bail, Context, Result};
@@ -239,6 +239,16 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
                     },
                     None => (Act::Leave, Some(String::new())),
                 }
+            };
+            let (act, note) = match (&act, skip) {
+                (Act::Move(cat), Some(from)) => match s.shell.target_name(*cat, &text) {
+                    Some(to) => match order_clash(p, s.shell, files, Some(from), &to, &b.text)? {
+                        Some(why) => (Act::Leave, Some(why)),
+                        None => (act, note),
+                    },
+                    None => (act, note),
+                },
+                _ => (act, note),
             };
             let suggested = act.clone();
             items.push(Item { src: si, block: b.clone(), text, name: block_name(b), act, note, suggested, clash });

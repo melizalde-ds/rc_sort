@@ -284,6 +284,19 @@ fn tidy_sorts_conf_d_files_into_tools_in_order() {
 }
 
 #[test]
+fn tidy_asks_about_a_move_past_a_file_that_sets_the_same_variable() {
+    // Arrange
+    let p = setup("tidy-order");
+    conf_d(&p, &[("a.fish", "set -gx EDITOR nvim\n"), ("b.fish", "set -gx EDITOR vim\n")]);
+
+    // Act
+    let out = tidy(&p, "\nn\n");
+
+    // Assert
+    assert!(out.contains("conf.d/b.fish also defines EDITOR"), "{out}");
+}
+
+#[test]
 fn unsorted_names_fish_conf_d_files() {
     // Arrange
     let p = setup("unsorted");

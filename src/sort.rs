@@ -67,7 +67,7 @@ pub fn run_once(p: &Paths) -> Result<()> {
                     state.pending.push(pending(file, b, format!("{name} already exists")));
                     continue;
                 }
-                if let Some(note) = later_clash(p, shell, &files, &name, &b.text)? {
+                if let Some(note) = order_clash(p, shell, &files, None, &name, &b.text)? {
                     state.pending.push(pending(file, b, note));
                     continue;
                 }
@@ -290,10 +290,18 @@ pub(crate) fn tool_clash(
         })
 }
 
-/// A name `text` defines that a file loading after `target` defines too. In the watched
-/// file the block ran last; moved to `target`, that later file would win instead.
+/// A name `text` defines that another file defines too, where that file loads between the
+/// block's place `from` and `target`: moving the block would change which one wins.
+/// `from` is None for a watched file, which runs after every rc file.
 /// shortcut: byte order stands in for the glob's locale order, fine for usual lowercase names.
-fn later_clash(p: &Paths, shell: Shell, files: &[(String, String)], target: &str, text: &str) -> Result<Option<String>> {
+pub(crate) fn order_clash(
+    p: &Paths,
+    shell: Shell,
+    files: &[(String, String)],
+    from: Option<&str>,
+    target: &str,
+    text: &str,
+) -> Result<Option<String>> {
     let ours = shell.defined_names(text);
     // (load-order key, name shown, text): system conf.d files sort by name among ours.
     let mut all: Vec<(String, String, String)> = files.iter().map(|(n, t)| (n.clone(), n.clone(), t.clone())).collect();
@@ -304,14 +312,19 @@ fn later_clash(p: &Paths, shell: Shell, files: &[(String, String)], target: &str
             }
         }
     }
-    let loads_later = |n: &str| match shell {
-        Shell::Bash => n > target,
-        // A function defined in conf.d is never replaced by its autoload file.
-        Shell::Fish => n.starts_with("conf.d/") && (target.starts_with("functions/") || n > target),
+    let between = |n: &str| match from {
+        None => n > target,
+        Some(f) => f.min(target) < n && n < f.max(target),
     };
-    Ok(all.iter().filter(|(key, _, _)| loads_later(key)).find_map(|(_, shown, t)| {
+    let flips = |n: &str| match shell {
+        Shell::Bash => between(n),
+        // A function defined in conf.d always beats its autoload file.
+        Shell::Fish => n.starts_with("conf.d/") && Some(n) != from && (target.starts_with("functions/") || between(n)),
+    };
+    let how = if from.is_none() { "loads later and also defines" } else { "also defines" };
+    Ok(all.iter().filter(|(key, _, _)| flips(key)).find_map(|(_, shown, t)| {
         let theirs = shell.defined_names(t);
-        ours.iter().find(|x| theirs.contains(x)).map(|x| format!("{shown} loads later and also defines {x}"))
+        ours.iter().find(|x| theirs.contains(x)).map(|x| format!("{shown} {how} {x}"))
     }))
 }
 
