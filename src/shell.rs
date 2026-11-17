@@ -52,7 +52,6 @@ impl Shell {
         if self == Shell::Bash {
             return Ok(None);
         }
-        let ours = fish_defined_names(text);
         let file = self.watched()[0];
         let Some(default) = self.default_text(p, file)? else { return Ok(None) };
         let mut sources = vec![(format!("the default {file}"), default.clone())];
@@ -63,17 +62,22 @@ impl Shell {
                 sources.push((path.to_string(), text));
             }
         }
-        Ok(sources.iter().find_map(|(from, theirs)| {
-            let theirs = fish_defined_names(theirs);
-            ours.iter().find(|n| theirs.contains(n)).map(|n| format!("{from} also defines {n}"))
-        }))
+        Ok(sources
+            .iter()
+            .find_map(|(from, theirs)| self.shared_name(text, theirs).map(|n| format!("{from} also defines {n}"))))
     }
 
-    pub fn defined_names(self, text: &str) -> Vec<&str> {
+    fn defined_names(self, text: &str) -> Vec<&str> {
         match self {
             Shell::Bash => bash_defined_names(text),
             Shell::Fish => fish_defined_names(text),
         }
+    }
+
+    /// The first alias, function or variable that both texts define.
+    pub fn shared_name(self, ours: &str, theirs: &str) -> Option<String> {
+        let theirs = self.defined_names(theirs);
+        self.defined_names(ours).into_iter().find(|n| theirs.contains(n)).map(String::from)
     }
 
     pub fn syntax_error(self, text: &str) -> Option<String> {

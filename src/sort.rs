@@ -302,7 +302,6 @@ pub(crate) fn order_clash(
     target: &str,
     text: &str,
 ) -> Result<Option<String>> {
-    let ours = shell.defined_names(text);
     // (load-order key, name shown, text): system conf.d files sort by name among ours.
     let mut all: Vec<(String, String, String)> = files.iter().map(|(n, t)| (n.clone(), n.clone(), t.clone())).collect();
     if shell == Shell::Fish {
@@ -322,10 +321,10 @@ pub(crate) fn order_clash(
         Shell::Fish => n.starts_with("conf.d/") && Some(n) != from && (target.starts_with("functions/") || between(n)),
     };
     let how = if from.is_none() { "loads later and also defines" } else { "also defines" };
-    Ok(all.iter().filter(|(key, _, _)| flips(key)).find_map(|(_, shown, t)| {
-        let theirs = shell.defined_names(t);
-        ours.iter().find(|x| theirs.contains(x)).map(|x| format!("{shown} {how} {x}"))
-    }))
+    Ok(all
+        .iter()
+        .filter(|(key, _, _)| flips(key))
+        .find_map(|(_, shown, t)| shell.shared_name(text, t).map(|x| format!("{shown} {how} {x}"))))
 }
 
 /// True if `block` appears in `target` as whole lines (ignoring trailing spaces).
