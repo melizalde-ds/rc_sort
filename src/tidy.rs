@@ -218,7 +218,7 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             let text = if s.scan.guard.is_some() && !autoload { s.shell.wrap_interactive(&b.text) } else { b.text.clone() };
             let skip = s.rc_name.as_deref();
             let mut clash = None;
-            let (act, note) = if let Some(other) = dup_in(files, &text, skip) {
+            let (mut act, mut note) = if let Some(other) = dup_in(files, &text, skip) {
                 (Act::Dup(other.to_string()), None)
             } else if let Some(why) = s.shell.distro_clash(p, &b.text)? {
                 (Act::Leave, Some(why))
@@ -240,16 +240,12 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
                     None => (Act::Leave, Some(String::new())),
                 }
             };
-            let (act, note) = match (&act, skip) {
-                (Act::Move(cat), Some(from)) => match s.shell.target_name(*cat, &text) {
-                    Some(to) => match order_clash(p, s.shell, files, Some(from), &to, &b.text)? {
-                        Some(why) => (Act::Leave, Some(why)),
-                        None => (act, note),
-                    },
-                    None => (act, note),
-                },
-                _ => (act, note),
-            };
+            if let (Act::Move(cat), Some(from)) = (&act, skip)
+                && let Some(to) = s.shell.target_name(*cat, &text)
+                && let Some(why) = order_clash(p, s.shell, files, Some(from), &to, &b.text)?
+            {
+                (act, note) = (Act::Leave, Some(why));
+            }
             let suggested = act.clone();
             items.push(Item { src: si, block: b.clone(), text, name: block_name(b), act, note, suggested, clash });
         }
