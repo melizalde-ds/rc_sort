@@ -334,3 +334,31 @@ fn half_typed_fish_alias_is_asked() {
     // Assert
     assert_eq!(State::load(&p).unwrap().pending[0].note, "fish --no-execute finds a syntax error in it");
 }
+
+#[test]
+fn export_a_later_conf_d_file_also_sets_is_asked() {
+    // Arrange
+    let p = setup("later-clash");
+    conf_d(&p, &[("work.fish", "set -gx EDITOR vim\n")]);
+    append(&p, "set -gx EDITOR nvim\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(State::load(&p).unwrap().pending[0].note, "conf.d/work.fish loads later and also defines EDITOR");
+}
+
+#[test]
+fn export_an_earlier_conf_d_file_also_sets_still_moves() {
+    // Arrange
+    let p = setup("earlier-clash");
+    conf_d(&p, &[("10-work.fish", "set -gx EDITOR vim\n")]);
+    append(&p, "set -gx EDITOR nvim\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert!(read(&p, "conf.d/exports.fish").is_some_and(|s| s.contains("nvim")));
+}

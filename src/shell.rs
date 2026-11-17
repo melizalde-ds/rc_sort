@@ -1,5 +1,5 @@
 use crate::blocks::{bash_depth, fish_depth, Block};
-use crate::classify::{classify_bash, classify_fish, fish_defined_names, function_name, Category};
+use crate::classify::{bash_defined_names, classify_bash, classify_fish, fish_defined_names, function_name, Category};
 use crate::state::{read_opt, Paths};
 use anyhow::Result;
 use std::io::Write;
@@ -67,6 +67,13 @@ impl Shell {
             let theirs = fish_defined_names(theirs);
             ours.iter().find(|n| theirs.contains(n)).map(|n| format!("{from} also defines {n}"))
         }))
+    }
+
+    pub fn defined_names(self, text: &str) -> Vec<&str> {
+        match self {
+            Shell::Bash => bash_defined_names(text),
+            Shell::Fish => fish_defined_names(text),
+        }
     }
 
     pub fn syntax_error(self, text: &str) -> Option<String> {

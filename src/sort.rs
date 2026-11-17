@@ -60,11 +60,15 @@ pub fn run_once(p: &Paths) -> Result<()> {
             }
             if let Some(name) = shell.target_name(cat, &b.text)
                 && new
-                && name.starts_with("functions/")
-                && shell.rc_dir(p).join(&name).exists()
             {
-                state.pending.push(pending(file, b, format!("{name} already exists")));
-                continue;
+                if name.starts_with("functions/") && shell.rc_dir(p).join(&name).exists() {
+                    state.pending.push(pending(file, b, format!("{name} already exists")));
+                    continue;
+                }
+                if let Some(note) = later_clash(shell, &files, &name, &b.text) {
+                    state.pending.push(pending(file, b, note));
+                    continue;
+                }
             }
             if done.is_empty() {
                 backup(p, file, &current)?;
@@ -264,6 +268,22 @@ pub(crate) fn tool_clash(
             let theirs = tools_named(t);
             ours.iter().find(|x| theirs.contains(x)).map(|&tool| (n.clone(), tool))
         })
+}
+
+/// A name `text` defines that a file loading after `target` defines too. In the watched
+/// file the block ran last; moved to `target`, that later file would win instead.
+/// shortcut: byte order stands in for the glob's locale order, fine for usual lowercase names.
+fn later_clash(shell: Shell, files: &[(String, String)], target: &str, text: &str) -> Option<String> {
+    let ours = shell.defined_names(text);
+    let loads_later = |n: &str| match shell {
+        Shell::Bash => n > target,
+        // A function defined in conf.d is never replaced by its autoload file.
+        Shell::Fish => n.starts_with("conf.d/") && (target.starts_with("functions/") || n > target),
+    };
+    files.iter().filter(|(n, _)| loads_later(n)).find_map(|(n, t)| {
+        let theirs = shell.defined_names(t);
+        ours.iter().find(|x| theirs.contains(x)).map(|x| format!("{n} loads later and also defines {x}"))
+    })
 }
 
 /// True if `block` appears in `target` as whole lines (ignoring trailing spaces).

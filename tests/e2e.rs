@@ -443,3 +443,31 @@ fn watch_goes_idle_when_nothing_changes() {
     // Assert
     assert_eq!(fs::metadata(&state).unwrap().modified().unwrap(), before, "a pass ran with nothing changed");
 }
+
+#[test]
+fn alias_a_later_bashrc_d_file_also_defines_is_asked() {
+    // Arrange
+    let p = setup("later-clash");
+    fs::write(p.home.join(".bashrc.d/work.sh"), "alias ll='ls -l'\n").unwrap();
+    append(&p, ".bashrc", "alias ll='ls -la'\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(State::load(&p).unwrap().pending[0].note, "work.sh loads later and also defines ll");
+}
+
+#[test]
+fn path_added_by_a_later_file_too_still_moves() {
+    // Arrange
+    let p = setup("later-path");
+    fs::write(p.home.join(".bashrc.d/zz-local.sh"), "export PATH=\"$HOME/x:$PATH\"\n").unwrap();
+    append(&p, ".bashrc", "export PATH=\"$HOME/y:$PATH\"\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert!(read(&p, ".bashrc.d/tools.sh").contains("$HOME/y"));
+}

@@ -102,8 +102,28 @@ pub fn fish_defined_names(text: &str) -> Vec<&str> {
                 "function" => words.next(),
                 "alias" => words.next().and_then(|w| w.split('=').next()),
                 "abbr" => words.find(|w| !w.starts_with('-')),
+                "set" if fish_exports(t) => fish_set_name(t).filter(|&n| n != "PATH"),
                 _ => None,
             }
+        })
+        .collect()
+}
+
+/// Aliases, functions and variables a bash block sets. Not PATH: blocks add to it.
+pub fn bash_defined_names(text: &str) -> Vec<&str> {
+    code_lines(text)
+        .into_iter()
+        .filter_map(|t| {
+            if let Some(rest) = t.strip_prefix("alias ") {
+                return rest.split('=').next().map(str::trim);
+            }
+            if defines_function(t) {
+                let t = t.strip_prefix("function ").unwrap_or(t);
+                return t.split(|c: char| c == '(' || c == '{' || c.is_whitespace()).next();
+            }
+            let (name, _) = t.strip_prefix("export ").unwrap_or(t).split_once('=')?;
+            let variable = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            (variable && name != "PATH").then_some(name)
         })
         .collect()
 }
