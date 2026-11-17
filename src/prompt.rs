@@ -31,11 +31,7 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
     }; // unlocked while waiting for the user
 
     for item in pending {
-        let header = if item.note.is_empty() {
-            format!("rc-sort: unsure where this block from ~/{} goes:", item.file)
-        } else {
-            format!("rc-sort: unsure where this block from ~/{} goes ({}):", item.file, item.note)
-        };
+        let header = unsure_header(&format!("~/{}", item.file), &item.note);
         let answer = ask(&header, &item.text, input, out)?;
         if let Answer::Later = answer {
             continue;
@@ -78,6 +74,14 @@ pub(crate) fn warn_unsorted(p: &Paths, out: &mut impl Write) -> Result<()> {
         writeln!(out, "rc-sort: not sorted yet: {} (run: rc-sort tidy)", names.join(", "))?;
     }
     Ok(())
+}
+
+pub(crate) fn unsure_header(from: &str, note: &str) -> String {
+    if note.is_empty() {
+        format!("rc-sort: unsure where this block from {from} goes:")
+    } else {
+        format!("rc-sort: unsure where this block from {from} goes ({note}):")
+    }
 }
 
 fn flush_messages(state: &mut State, out: &mut impl Write) -> Result<()> {

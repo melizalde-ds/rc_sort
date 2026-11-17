@@ -4,7 +4,7 @@
 
 use crate::blocks::{split_blocks, Block};
 use crate::classify::{leaves_file, tools_named, Category};
-use crate::prompt::{ask, Answer};
+use crate::prompt::{ask, unsure_header, Answer};
 use crate::sort::{block_name, dup_in, order_clash, place, rc_files, tool_clash, without, FISH_HOOK, HOOK};
 use crate::state::{atomic_write, backup, hash, load_kept, lock, Paths, State};
 use crate::shell::Shell;
@@ -124,7 +124,7 @@ pub(crate) struct Item {
     pub(crate) text: String,
     pub(crate) name: String,
     pub(crate) act: Act,
-    /// `None`: sure. `Some("")`: no rule matched. `Some(why)`: may be a duplicate.
+    /// `None`: sure. `Some("")`: no rule matched. `Some(why)`: why it is unsure.
     pub(crate) note: Option<String>,
     /// What tidy chose before anyone answered (`act` starts equal to it).
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
@@ -278,11 +278,7 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
     for idx in 0..plan.items.len() {
         let Some(note) = plan.items[idx].note.clone() else { continue };
         let shown = plan.srcs[plan.items[idx].src].shown.clone();
-        let header = if note.is_empty() {
-            format!("rc-sort: unsure where this block from {shown} goes:")
-        } else {
-            format!("rc-sort: {note}; this one from {shown} may be a duplicate:")
-        };
+        let header = unsure_header(&shown, &note);
         let block = plan.items[idx].block.clone();
         match ask(&header, &block.text, input, out)? {
             Answer::Move(cat) if plan.can_move(idx, cat) => {

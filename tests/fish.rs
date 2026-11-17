@@ -308,7 +308,10 @@ fn tidy_asks_about_a_move_past_a_file_that_sets_the_same_variable() {
     let out = tidy(&p, "\nn\n");
 
     // Assert
-    assert!(out.contains("conf.d/b.fish also defines EDITOR"), "{out}");
+    assert!(
+        out.contains("unsure where this block from ~/.config/fish/conf.d/a.fish goes (conf.d/b.fish also defines EDITOR):"),
+        "{out}"
+    );
 }
 
 #[test]
