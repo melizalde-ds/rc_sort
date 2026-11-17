@@ -8,10 +8,7 @@ use crate::state::Paths;
 use crate::tidy::{apply, plan, Act, Item, Plan};
 use anyhow::Result;
 use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
-};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::crossterm::terminal::ScrollUp;
 use ratatui::crossterm::{cursor, execute, terminal};
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
@@ -38,89 +35,31 @@ const SHELL_WORDS: [&str; 18] = [
     "do", "done", "case", "esac", "unset",
 ];
 
-/// How much color the terminal gets.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Tier {
-    /// The 16 named colors: the terminal's theme picks the shades (also under NO_COLOR).
-    Ansi,
-    /// 24-bit colors for a dark background.
-    Dark,
-    /// 24-bit colors for a light background.
-    Light,
-}
-
-/// The palette, by meaning: "usable at 16 colors, nicer at true color". On 16 colors only
-/// named colors and dim, no backgrounds; on true color a soft violet accent plus a surface
-/// tint for the selected row, badges and key caps. No black/white text in any tier, and
-/// every color comes with an icon or a word.
+/// The 16 named colors, so the terminal's theme picks the shades. Every color comes with
+/// an icon or a word.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Theme {
-    pub(crate) tier: Tier,
-}
-
-fn hex(v: u32) -> Color {
-    Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
-}
+pub(crate) struct Theme;
 
 impl Theme {
-    /// `RC_SORT_THEME=ansi|dark|light` wins; otherwise `COLORTERM=truecolor|24bit` gets
-    /// the dark palette (most terminals; asking the terminal for its background is
-    /// unreliable over tmux and ssh) and anything else the 16 colors.
-    pub(crate) fn detect() -> Theme {
-        let tier = match std::env::var("RC_SORT_THEME").as_deref() {
-            Ok("ansi") => Tier::Ansi,
-            Ok("dark") => Tier::Dark,
-            Ok("light") => Tier::Light,
-            _ if std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit") => Tier::Dark,
-            _ => Tier::Ansi,
-        };
-        Theme { tier }
-    }
-
-    fn pick(&self, dark: u32, light: u32, ansi: Color) -> Color {
-        match self.tier {
-            Tier::Ansi => ansi,
-            Tier::Dark => hex(dark),
-            Tier::Light => hex(light),
-        }
-    }
-
     /// Title, selection bar, category badges, key caps.
     pub(crate) fn accent(&self) -> Style {
-        Style::new().fg(self.pick(0xa78bfa, 0x7c3aed, Color::Cyan))
+        Style::new().fg(Color::Cyan)
     }
     /// ✓ sure, `+` lines, a finished progress bar.
     pub(crate) fn good(&self) -> Style {
-        Style::new().fg(self.pick(0x86efac, 0x15803d, Color::Green))
+        Style::new().fg(Color::Green)
     }
     /// ? unsure, • changed, messages, `Apply?`.
     pub(crate) fn attention(&self) -> Style {
-        Style::new().fg(self.pick(0xfcd34d, 0xb45309, Color::Yellow))
+        Style::new().fg(Color::Yellow)
     }
     /// ⊘ can't move, remove, a file that gets deleted.
     pub(crate) fn danger(&self) -> Style {
-        Style::new().fg(self.pick(0xfca5a5, 0xb91c1c, Color::Red))
+        Style::new().fg(Color::Red)
     }
     /// Hints, outcomes, rules, the target file's tail, later.
     pub(crate) fn muted(&self) -> Style {
-        match self.tier {
-            Tier::Ansi => Style::new().dim(),
-            _ => Style::new().fg(self.pick(0x8b8fa3, 0x6b7280, Color::Reset)),
-        }
-    }
-    /// The tint behind the selected row, badges and key caps; none on 16 colors.
-    pub(crate) fn surface(&self) -> Option<Color> {
-        match self.tier {
-            Tier::Ansi => None,
-            Tier::Dark => Some(hex(0x2a2d3e)),
-            Tier::Light => Some(hex(0xe6e6f0)),
-        }
-    }
-    fn on_surface(&self, style: Style) -> Style {
-        match self.surface() {
-            Some(bg) => style.bg(bg),
-            None => style,
-        }
+        Style::new().dim()
     }
 }
 
@@ -232,7 +171,7 @@ fn utf8_locale() -> bool {
 /// The `?` key list, with this terminal's symbols.
 fn keys_help(g: &Glyphs) -> Vec<String> {
     vec![
-        format!(" {}  PgUp PgDn  Home End  mouse   select     Tab / Shift-Tab   next / previous unsure", g.updown),
+        format!(" {}  PgUp PgDn  Home End  select     Tab / Shift-Tab   next / previous unsure", g.updown),
         " t e a f   move to tools / exports / aliases / functions".into(),
         " k  keep: stays here, never asked again   l  later: decide next time   r  back to the suggestion".into(),
         " p  show/hide preview     y  apply     q Esc  quit".into(),
@@ -259,21 +198,18 @@ pub fn run(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<(
     let color = std::env::var_os("NO_COLOR").is_none();
     let mut app = App {
         g: if utf8_locale() { UNICODE } else { ASCII },
-        theme: if color { Theme::detect() } else { Theme { tier: Tier::Ansi } },
         color,
         ..App::default()
     };
     let (_, rows) = terminal::size()?;
     let viewport = Viewport::Inline(height(&plan, rows));
     let mut term = ratatui::init_with_options(TerminalOptions { viewport });
-    let _ = execute!(std::io::stdout(), EnableMouseCapture);
     let step: Result<Step> = loop {
         if let Err(e) = term.draw(|f| draw(f, &app, &plan)) {
             break Err(e.into());
         }
         let step = match event::read() {
             Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => app.handle(&mut plan, k),
-            Ok(Event::Mouse(m)) => app.mouse(&plan, m),
             Ok(Event::Resize(_, rows)) => {
                 // Terminals re-wrap the old box differently when the width changes (and may
                 // push part of it into history), so there is no reliable spot to redraw it.
@@ -297,7 +233,6 @@ pub fn run(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<(
     // Erase the box; the summary is printed where it was. `draw` results only carry a
     // frame-relative area, so the box's row on screen comes from `get_frame`.
     let top = term.get_frame().area().y;
-    let _ = execute!(std::io::stdout(), DisableMouseCapture);
     let _ = term.clear();
     let _ = term.set_cursor_position((0, top));
     let _ = term.show_cursor();
@@ -392,8 +327,6 @@ pub(crate) struct App {
     wide: Cell<bool>,
     /// The list's scroll position, kept across frames.
     list: RefCell<ListState>,
-    /// Where the list rows were drawn, for mouse clicks.
-    list_area: Cell<Rect>,
 }
 
 impl Default for App {
@@ -405,11 +338,10 @@ impl Default for App {
             status: String::new(),
             preview: None,
             g: UNICODE,
-            theme: Theme { tier: Tier::Ansi },
+            theme: Theme,
             color: true,
             wide: Cell::new(true),
             list: RefCell::new(ListState::default()),
-            list_area: Cell::new(Rect::default()),
         }
     }
 }
@@ -489,34 +421,6 @@ impl App {
         }
         Step::Stay
     }
-
-    /// Wheel moves the selection; a click selects a block (or the first block of a file).
-    pub(crate) fn mouse(&mut self, plan: &Plan, m: MouseEvent) -> Step {
-        let last = plan.items.len().saturating_sub(1);
-        match m.kind {
-            MouseEventKind::ScrollUp => self.sel = self.sel.saturating_sub(1),
-            MouseEventKind::ScrollDown => self.sel = (self.sel + 1).min(last),
-            MouseEventKind::Down(MouseButton::Left) => {
-                let a = self.list_area.get();
-                let inside = (a.x..a.x + a.width).contains(&m.column) && (a.y..a.y + a.height).contains(&m.row);
-                if !inside || self.confirm || self.help {
-                    return Step::Stay;
-                }
-                let idx = self.list.borrow().offset() + (m.row - a.y) as usize;
-                match rows(plan).get(idx) {
-                    Some(Row::Item(i)) => self.sel = *i,
-                    Some(Row::File(si)) => {
-                        if let Some(i) = plan.items.iter().position(|it| it.src == *si) {
-                            self.sel = i;
-                        }
-                    }
-                    Some(Row::Gap) | None => {}
-                }
-            }
-            _ => {}
-        }
-        Step::Stay
-    }
 }
 
 /// Badge icon, word and style: categories share the accent; color only marks status.
@@ -529,11 +433,10 @@ fn badge(act: &Act, g: &Glyphs, t: &Theme) -> (&'static str, String, Style) {
     }
 }
 
-/// A fixed-width badge (`BADGE_W` columns, ` ● functions `) on the surface tint, so the
-/// targets line up.
+/// A fixed-width badge (`BADGE_W` columns, ` ● functions `), so the targets line up.
 fn badge_span(act: &Act, g: &Glyphs, t: &Theme) -> Span<'static> {
     let (icon, word, style) = badge(act, g, t);
-    Span::styled(format!(" {icon} {word:<9} "), t.on_surface(style))
+    Span::styled(format!(" {icon} {word:<9} "), style)
 }
 
 /// The choice in words: `tools`, `exports`, `aliases`, `functions`, `keep`, `later`, `remove`.
@@ -626,13 +529,9 @@ fn shell_line(prefix: &str, line: &str, base: Style) -> Line<'static> {
     }
 }
 
-/// A key drawn like a key cap: on the surface tint with true color, bold accent otherwise.
+/// A key drawn in bold accent.
 fn keycap(k: &str, t: &Theme) -> Span<'static> {
-    let style = t.accent().bold();
-    match t.surface() {
-        Some(_) => Span::styled(format!(" {k} "), t.on_surface(style)),
-        None => Span::styled(k.to_string(), style),
-    }
+    Span::styled(k.to_string(), t.accent().bold())
 }
 
 
@@ -700,7 +599,6 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
         (inner, None)
     };
     let list_area = left.inner(Margin::new(1, 0));
-    app.list_area.set(list_area);
 
     let width = list_area.width as usize;
     let items: Vec<ListItem> = rows
@@ -711,7 +609,7 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
             Row::Item(i) => ListItem::new(item_line(&plan.items[*i], *i == app.sel, width, g, t)),
         })
         .collect();
-    let list = List::new(items).highlight_style(t.on_surface(Style::new()));
+    let list = List::new(items).highlight_style(Style::new());
     {
         let mut state = app.list.borrow_mut();
         state.select(rows.iter().position(|r| *r == Row::Item(app.sel)));
@@ -1159,70 +1057,28 @@ mod tests {
     }
 
     #[test]
-    fn palette_rules_hold_on_every_cell() {
+    fn only_named_colors_and_no_backgrounds() {
         let p = setup("palette");
         fs::write(p.rc_dir().join("60-dup.sh"), "alias g=git\n").unwrap();
         fs::write(p.rc_dir().join("aliases.sh"), "alias g=git\n").unwrap();
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
-        for tier in [Tier::Ansi, Tier::Dark, Tier::Light] {
-            let t = Theme { tier };
-            let mut app = App { theme: t, ..App::default() };
-            let mut cells = Vec::new();
-            for (confirm, help) in [(false, false), (true, false), (false, true)] {
-                app.confirm = confirm;
-                app.help = help;
-                cells.extend(terminal(&app, &plan, 110, 12).backend().buffer().content().to_vec());
-            }
-            let fg_ok: Vec<Color> = [t.accent(), t.good(), t.attention(), t.danger(), t.muted()]
-                .iter()
-                .filter_map(|s| s.fg)
-                .chain([Color::Reset])
-                .collect();
-            let bg_ok = [Some(Color::Reset), t.surface()];
-            for c in &cells {
-                assert!(bg_ok.contains(&Some(c.bg)), "{tier:?}: only the surface tint as background: {c:?}");
-                assert!(fg_ok.contains(&c.fg), "{tier:?}: only palette colors, no black/white: {c:?}");
-            }
-            if tier == Tier::Ansi {
-                assert!(cells.iter().all(|c| c.bg == Color::Reset), "no backgrounds on 16 colors");
-            }
-        }
-    }
-
-    #[test]
-    fn theme_comes_from_the_environment() {
-        // Only checks the mapping; the env vars of the test process are left as they are.
-        assert_eq!(Theme { tier: Tier::Ansi }.surface(), None);
-        assert!(Theme { tier: Tier::Dark }.surface().is_some());
-        assert_ne!(Theme { tier: Tier::Dark }.accent(), Theme { tier: Tier::Light }.accent());
-        assert_eq!(Theme { tier: Tier::Ansi }.accent().fg, Some(Color::Cyan));
-    }
-
-    #[test]
-    fn mouse_selects_rows_and_wheel_moves() {
-        let p = setup("mouse");
-        fs::write(p.rc_dir().join("40-y.sh"), "export Y=1\n").unwrap();
-        let plan = plan(&p, None, &mut Vec::new()).unwrap();
         let mut app = App::default();
-        terminal(&app, &plan, 110, 12);
-        let click = |row| MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: 5,
-            row,
-            modifiers: KeyModifiers::NONE,
-        };
-        // Row 0 header line, 1 top border, 2 "30-x.sh", 3 alias, 4 ssh-agent, 5 gap, 6 "40-y.sh", 7 export.
-        app.mouse(&plan, click(4));
-        assert_eq!(app.sel, 1);
-        app.mouse(&plan, click(5));
-        assert_eq!(app.sel, 1, "the gap between files does nothing");
-        app.mouse(&plan, click(6));
-        assert_eq!(app.sel, 2, "a file heading selects its first block");
-        app.mouse(&plan, click(0));
-        assert_eq!(app.sel, 2, "clicks outside the list do nothing");
-        let wheel = |kind| MouseEvent { kind, column: 5, row: 3, modifiers: KeyModifiers::NONE };
-        app.mouse(&plan, wheel(MouseEventKind::ScrollUp));
-        assert_eq!(app.sel, 1);
+        let mut cells = Vec::new();
+        for (confirm, help) in [(false, false), (true, false), (false, true)] {
+            app.confirm = confirm;
+            app.help = help;
+            cells.extend(terminal(&app, &plan, 110, 12).backend().buffer().content().to_vec());
+        }
+        let t = Theme;
+        let fg_ok: Vec<Color> = [t.accent(), t.good(), t.attention(), t.danger(), t.muted()]
+            .iter()
+            .filter_map(|s| s.fg)
+            .chain([Color::Reset])
+            .collect();
+        for c in &cells {
+            assert_eq!(c.bg, Color::Reset, "no backgrounds: {c:?}");
+            assert!(fg_ok.contains(&c.fg), "only palette colors, no black/white: {c:?}");
+        }
     }
 
     #[test]
