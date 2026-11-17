@@ -333,3 +333,18 @@ fn line_inside_a_default_bash_block_is_asked() {
     assert_eq!(read(&p, ".bashrc"), edited);
     assert_eq!(State::load(&p).unwrap().pending[0].note, "it is inside a block of the default file");
 }
+
+#[test]
+fn command_in_bash_profile_is_asked() {
+    // Arrange
+    let p = setup("ssh-agent");
+    append(&p, ".bash_profile", "\neval \"$(ssh-agent -s)\"\n");
+    let before = read(&p, ".bash_profile");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(read(&p, ".bash_profile"), before);
+    assert_eq!(State::load(&p).unwrap().pending[0].note, "~/.bash_profile runs it once per login; ~/.bashrc.d runs it in every shell");
+}

@@ -1,5 +1,5 @@
 use crate::blocks::{split_blocks, Block};
-use crate::classify::{leaves_file, tools_named, Category};
+use crate::classify::{leaves_file, runs_a_command, tools_named, Category};
 use crate::diff::added_lines;
 use crate::state::{atomic_write, backup, hash, lock, normalize, read_opt, Paths, Pending, State};
 use crate::shell::Shell;
@@ -24,6 +24,11 @@ pub fn run_once(p: &Paths) -> Result<()> {
         for b in &blocks {
             let h = hash(&b.text);
             if state.kept.contains(&h) || state.pending.iter().any(|x| x.hash == h) {
+                continue;
+            }
+            if file == ".bash_profile" && runs_a_command(b) {
+                let note = "~/.bash_profile runs it once per login; ~/.bashrc.d runs it in every shell";
+                state.pending.push(pending(file, b, note.into()));
                 continue;
             }
             let enclosure = enclosure(shell, &current, b);

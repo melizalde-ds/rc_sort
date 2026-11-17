@@ -113,6 +113,10 @@ pub fn fish_defined_names(text: &str) -> Vec<&str> {
         .collect()
 }
 
+pub fn runs_a_command(b: &Block) -> bool {
+    code_lines(b).iter().any(|t| runs_command(t))
+}
+
 fn code_lines(b: &Block) -> Vec<&str> {
     b.text.lines().map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('#')).collect()
 }
