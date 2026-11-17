@@ -65,11 +65,7 @@ pub fn run_install(p: &Paths, out: &mut impl Write) -> Result<()> {
         systemctl(args)?;
     }
     writeln!(out, "rc-sort: service running (logs: journalctl --user -u rc-sort)")?;
-    if let Ok(names) = crate::tidy::unsorted(p)
-        && !names.is_empty()
-    {
-        writeln!(out, "rc-sort: not sorted yet: {}; run: rc-sort tidy", names.join(", "))?;
-    }
+    crate::prompt::warn_unsorted(p, out)?;
     writeln!(out, "rc-sort: open a new terminal to see its messages")?;
     Ok(())
 }

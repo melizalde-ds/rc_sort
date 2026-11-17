@@ -71,7 +71,7 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
 
 /// One line naming `~/.bashrc.d` files that `tidy` would still sort. A read error here
 /// must not break shell startup, so it just skips the warning.
-fn warn_unsorted(p: &Paths, out: &mut impl Write) -> Result<()> {
+pub(crate) fn warn_unsorted(p: &Paths, out: &mut impl Write) -> Result<()> {
     if let Ok(names) = crate::tidy::unsorted(p)
         && !names.is_empty()
     {
