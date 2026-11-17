@@ -34,6 +34,10 @@ pub fn run_once(p: &Paths) -> Result<()> {
                 state.pending.push(pending(file, b, String::new()));
                 continue;
             };
+            if let Some(note) = shell.distro_clash(p, &b.text)? {
+                state.pending.push(pending(file, b, note));
+                continue;
+            }
             let text = placed_text(shell, enclosure, cat, &b.text);
             let files = rc_files(p, shell)?;
             let new = dup_in(&files, &text, None).is_none();

@@ -150,3 +150,57 @@ fn line_inside_another_default_block_is_asked() {
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].note, "it is inside a block of the default file");
 }
+
+fn with_distro_config(name: &str, distro: &str) -> Paths {
+    let p = setup(name);
+    let distro_file = p.home.join("distro.fish");
+    fs::write(&distro_file, distro).unwrap();
+    let skel = p.home.join("skel");
+    fs::create_dir_all(skel.join(".config/fish")).unwrap();
+    fs::write(skel.join(CONFIG), format!("source {}\n", distro_file.display())).unwrap();
+    let p = Paths { skel, ..p };
+    fs::copy(p.skel.join(CONFIG), p.home.join(CONFIG)).unwrap();
+    p
+}
+
+#[test]
+fn alias_the_distro_config_also_defines_is_asked() {
+    // Arrange
+    let p = with_distro_config("distro-alias", "alias ls='eza -al'\n");
+    append(&p, "alias ls \"eza --icons\"\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    let pending = State::load(&p).unwrap().pending;
+    assert_eq!(pending.len(), 1);
+    assert!(pending[0].note.ends_with("distro.fish also defines ls"), "{}", pending[0].note);
+}
+
+#[test]
+fn function_the_distro_config_also_defines_is_asked() {
+    // Arrange
+    let p = with_distro_config("distro-function", "function copy\n    cp $argv\nend\n");
+    append(&p, "function copy\n    cp -r $argv\nend\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(State::load(&p).unwrap().pending.len(), 1);
+    assert_eq!(read(&p, "functions/copy.fish"), None);
+}
+
+#[test]
+fn alias_with_a_new_name_still_moves() {
+    // Arrange
+    let p = with_distro_config("distro-other", "alias ls='eza -al'\n");
+    append(&p, "abbr -a gs git status\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(read(&p, "conf.d/aliases.fish").unwrap(), "abbr -a gs git status\n");
+}

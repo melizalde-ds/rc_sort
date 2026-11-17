@@ -1,5 +1,5 @@
 use crate::blocks::{bash_depth, fish_depth, Block};
-use crate::classify::{classify_bash, classify_fish, function_name, Category};
+use crate::classify::{classify_bash, classify_fish, fish_defined_names, function_name, Category};
 use crate::state::{read_opt, Paths};
 use anyhow::Result;
 use std::path::PathBuf;
@@ -44,6 +44,27 @@ impl Shell {
             Shell::Bash => skel,
             Shell::Fish => skel.or_else(|| Some(FISH_TEMPLATE.to_string())),
         })
+    }
+
+    pub fn distro_clash(self, p: &Paths, text: &str) -> Result<Option<String>> {
+        if self == Shell::Bash {
+            return Ok(None);
+        }
+        let ours = fish_defined_names(text);
+        let file = self.watched()[0];
+        let Some(default) = self.default_text(p, file)? else { return Ok(None) };
+        let mut sources = vec![(format!("the default {file}"), default.clone())];
+        for path in default.lines().filter_map(|l| l.trim().strip_prefix("source ")).map(str::trim) {
+            if path.starts_with('/')
+                && let Some(text) = read_opt(std::path::Path::new(path))?
+            {
+                sources.push((path.to_string(), text));
+            }
+        }
+        Ok(sources.iter().find_map(|(from, theirs)| {
+            let theirs = fish_defined_names(theirs);
+            ours.iter().find(|n| theirs.contains(n)).map(|n| format!("{from} also defines {n}"))
+        }))
     }
 
     pub fn depth_delta(self, line: &str) -> i32 {

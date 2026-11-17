@@ -99,6 +99,20 @@ pub fn function_name(text: &str) -> Option<&str> {
     code[0].split_whitespace().nth(1)
 }
 
+pub fn fish_defined_names(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter_map(|t| {
+            let mut words = t.split_whitespace();
+            match words.next()? {
+                "function" => words.next(),
+                "alias" => words.next().and_then(|w| w.split('=').next()),
+                "abbr" => words.find(|w| !w.starts_with('-')),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 fn code_lines(b: &Block) -> Vec<&str> {
     b.text.lines().map(str::trim).filter(|t| !t.is_empty() && !t.starts_with('#')).collect()
 }
@@ -353,6 +367,12 @@ mod tests {
     #[test]
     fn fish_unknown_command_is_unsure() {
         assert_eq!(fish_class("ssh-agent -c > /dev/null"), None);
+    }
+
+    #[test]
+    fn fish_names_from_alias_abbr_and_function() {
+        let text = "alias ls='eza -al'\nalias ll \"eza -l\"\nabbr -a gs git status\nfunction backup --argument f\nend\n#function off";
+        assert_eq!(fish_defined_names(text), vec!["ls", "ll", "gs", "backup"]);
     }
 
     #[test]
