@@ -318,3 +318,18 @@ fn alias_naming_a_known_tool_still_moves() {
     assert_eq!(read(&p, ".bashrc"), skel(".bashrc"));
     assert!(read(&p, ".bashrc.d/aliases.sh").contains("alias ct=\"cargo test\""));
 }
+
+#[test]
+fn line_inside_a_default_bash_block_is_asked() {
+    // Arrange
+    let p = setup("inside-if");
+    let edited = skel(".bashrc").replace("if [ -d ~/.bashrc.d ]; then\n", "if [ -d ~/.bashrc.d ]; then\n    alias g=git\n");
+    fs::write(p.home.join(".bashrc"), &edited).unwrap();
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(read(&p, ".bashrc"), edited);
+    assert_eq!(State::load(&p).unwrap().pending[0].note, "it is inside a block of the default file");
+}

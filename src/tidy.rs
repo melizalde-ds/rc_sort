@@ -49,20 +49,6 @@ fn is_interactive_guard(line: &str) -> bool {
     t == "[[ $- == *i* ]] || return" || t == "[[ $- != *i* ]] && return"
 }
 
-/// The block as it must read once it leaves a guarded file.
-fn wrap_interactive(text: &str) -> String {
-    // Indenting would change a heredoc's content; leave those as they are.
-    let body = if text.contains("<<") {
-        text.to_string()
-    } else {
-        text.lines()
-            .map(|l| if l.trim().is_empty() { String::new() } else { format!("    {l}") })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    format!("if [[ $- == *i* ]]; then\n{body}\nfi")
-}
-
 /// Names of `~/.bashrc.d` files that still hold blocks to sort (kept blocks don't count).
 /// Used by the shell hook, so it reads only and never fails loudly.
 pub fn unsorted(p: &Paths) -> Result<Vec<String>> {
@@ -200,7 +186,7 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             if kept.contains(&hash(&b.text)) {
                 continue;
             }
-            let text = if s.scan.guard.is_some() { wrap_interactive(&b.text) } else { b.text.clone() };
+            let text = if s.scan.guard.is_some() { Shell::Bash.wrap_interactive(&b.text) } else { b.text.clone() };
             let skip = s.rc_name.as_deref();
             let mut clash = None;
             let (act, note) = if let Some(other) = dup_in(&files, &text, skip) {
@@ -426,7 +412,7 @@ mod tests {
 
     #[test]
     fn wrap_indents_and_keeps_heredocs() {
-        assert_eq!(wrap_interactive("a\n\nb"), "if [[ $- == *i* ]]; then\n    a\n\n    b\nfi");
-        assert_eq!(wrap_interactive("cat <<EOF\nx\nEOF"), "if [[ $- == *i* ]]; then\ncat <<EOF\nx\nEOF\nfi");
+        assert_eq!(Shell::Bash.wrap_interactive("a\n\nb"), "if [[ $- == *i* ]]; then\n    a\n\n    b\nfi");
+        assert_eq!(Shell::Bash.wrap_interactive("cat <<EOF\nx\nEOF"), "if [[ $- == *i* ]]; then\ncat <<EOF\nx\nEOF\nfi");
     }
 }

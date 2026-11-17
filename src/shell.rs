@@ -60,6 +60,30 @@ impl Shell {
         }
     }
 
+    pub fn opens_interactive(self, line: &str) -> bool {
+        let t = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        match self {
+            Shell::Bash => t == "if [[ $- == *i* ]]; then",
+            Shell::Fish => t == "if status is-interactive" || t == "if status --is-interactive",
+        }
+    }
+
+    pub fn wrap_interactive(self, text: &str) -> String {
+        // Indenting would change a heredoc's content; leave those as they are.
+        let body = if text.contains("<<") {
+            text.to_string()
+        } else {
+            text.lines()
+                .map(|l| if l.trim().is_empty() { String::new() } else { format!("    {l}") })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        match self {
+            Shell::Bash => format!("if [[ $- == *i* ]]; then\n{body}\nfi"),
+            Shell::Fish => format!("if status is-interactive\n{body}\nend"),
+        }
+    }
+
     pub fn rc_dir(self, p: &Paths) -> PathBuf {
         match self {
             Shell::Bash => p.rc_dir(),

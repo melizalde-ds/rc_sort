@@ -25,14 +25,20 @@ pub fn run_once(p: &Paths) -> Result<()> {
             if state.kept.contains(&h) || state.pending.iter().any(|x| x.hash == h) {
                 continue;
             }
+            let enclosure = enclosure(shell, &current, b);
+            if enclosure == Enclosure::Other {
+                state.pending.push(pending(file, b, "it is inside a block of the default file".into()));
+                continue;
+            }
             let Some(cat) = shell.classify(b) else {
                 state.pending.push(pending(file, b, String::new()));
                 continue;
             };
+            let text = placed_text(shell, enclosure, cat, &b.text);
             let files = rc_files(p, shell)?;
-            let new = dup_in(&files, &b.text, None).is_none();
+            let new = dup_in(&files, &text, None).is_none();
             if cat == Category::Tools && new
-                && let Some((other, tool)) = tool_clash(shell, &files, &b.text, None)
+                && let Some((other, tool)) = tool_clash(shell, &files, &text, None)
             {
                 let note = format!("{other} already has a {tool} block");
                 state.pending.push(pending(file, b, note));
@@ -49,7 +55,7 @@ pub fn run_once(p: &Paths) -> Result<()> {
             if done.is_empty() {
                 backup(p, file, &current)?;
             }
-            state.messages.push(place(p, shell, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
+            state.messages.push(place(p, shell, &format!("~/{file}"), &block_name(b), &text, cat, None)?);
             done.push(b);
         }
         if !done.is_empty() {
@@ -71,10 +77,49 @@ pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Categor
     if shell.target_name(cat, &b.text).is_none() {
         return Ok(false);
     }
+    let text = placed_text(shell, enclosure(shell, &current, b), cat, &b.text);
     backup(p, file, &current)?;
-    state.messages.push(place(p, shell, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
+    state.messages.push(place(p, shell, &format!("~/{file}"), &block_name(b), &text, cat, None)?);
     rewrite(p, file, &current, &[b])?;
     Ok(true)
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum Enclosure {
+    Top,
+    Interactive,
+    Other,
+}
+
+fn enclosure(shell: Shell, current: &str, block: &Block) -> Enclosure {
+    let lines: Vec<&str> = current.lines().collect();
+    let mut open: Vec<usize> = Vec::new();
+    for (i, line) in lines.iter().enumerate().take(block.lines[0]) {
+        let delta = shell.depth_delta(line.trim());
+        open.extend(std::iter::repeat_n(i, delta.max(0) as usize));
+        open.truncate(open.len().saturating_sub((-delta).max(0) as usize));
+    }
+    match open.as_slice() {
+        [] => Enclosure::Top,
+        [i] if shell.opens_interactive(lines[*i]) => Enclosure::Interactive,
+        _ => Enclosure::Other,
+    }
+}
+
+fn placed_text(shell: Shell, enclosure: Enclosure, cat: Category, text: &str) -> String {
+    match enclosure {
+        Enclosure::Top => text.to_string(),
+        Enclosure::Interactive if !(shell == Shell::Fish && cat == Category::Functions) => {
+            shell.wrap_interactive(&dedent(text))
+        }
+        _ => dedent(text),
+    }
+}
+
+fn dedent(text: &str) -> String {
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let cut = text.lines().filter(|l| !l.trim().is_empty()).map(indent).min().unwrap_or(0);
+    text.lines().map(|l| l.get(cut..).unwrap_or("").trim_end()).collect::<Vec<_>>().join("\n")
 }
 
 /// Writes `file` without `blocks`, unless it changed since `current` was read: an installer

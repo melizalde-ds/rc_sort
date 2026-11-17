@@ -34,7 +34,7 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
         let header = if item.note.is_empty() {
             format!("rc-sort: unsure where this block from ~/{} goes:", item.file)
         } else {
-            format!("rc-sort: {}; this one from ~/{} may be a duplicate:", item.note, item.file)
+            format!("rc-sort: unsure where this block from ~/{} goes ({}):", item.file, item.note)
         };
         let answer = ask(&header, &item.text, input, out)?;
         if let Answer::Later = answer {

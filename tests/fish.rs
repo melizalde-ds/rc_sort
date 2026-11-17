@@ -115,3 +115,38 @@ fn without_a_skel_default_the_fish_template_is_the_baseline() {
     assert_eq!(read(&p, "config.fish").unwrap(), FISH_TEMPLATE);
     assert_eq!(read(&p, "conf.d/exports.fish").unwrap(), "set -gx EDITOR nvim\n");
 }
+
+#[test]
+fn line_inside_the_interactive_block_moves_wrapped() {
+    // Arrange
+    let p = setup("guard");
+    let p = Paths { skel: p.home.join("empty-skel"), ..p };
+    let config = "if status is-interactive\n    # Commands to run in interactive sessions can go here\n    starship init fish | source\nend\n";
+    fs::write(p.home.join(CONFIG), config).unwrap();
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(read(&p, "config.fish").unwrap(), FISH_TEMPLATE);
+    assert_eq!(read(&p, "conf.d/tools.fish").unwrap(), "if status is-interactive\n    starship init fish | source\nend\n");
+}
+
+#[test]
+fn line_inside_another_default_block_is_asked() {
+    // Arrange
+    let p = setup("other-block");
+    let skel = p.home.join("skel");
+    fs::create_dir_all(skel.join(".config/fish")).unwrap();
+    fs::write(skel.join(CONFIG), "if test -d ~/x\n    set y 1\nend\n").unwrap();
+    let p = Paths { skel, ..p };
+    fs::write(p.home.join(CONFIG), "if test -d ~/x\n    set y 1\n    set -gx EDITOR nvim\nend\n").unwrap();
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    let pending = State::load(&p).unwrap().pending;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].note, "it is inside a block of the default file");
+}
