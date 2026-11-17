@@ -1,7 +1,7 @@
-use bashrc_sort::prompt::run_prompt;
-use bashrc_sort::sort::run_once;
-use bashrc_sort::state::{hash, Paths, State};
-use bashrc_sort::tidy::{run_tidy, unsorted};
+use rc_sort::prompt::run_prompt;
+use rc_sort::sort::run_once;
+use rc_sort::state::{hash, Paths, State};
+use rc_sort::tidy::{run_tidy, unsorted};
 use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ fn skel_dir() -> PathBuf {
 
 /// Temp HOME with default rc files and the given `~/.bashrc.d` files.
 fn setup(name: &str, rc: &[(&str, &str)]) -> Paths {
-    let root = std::env::temp_dir().join(format!("bashrc-sort-tidy-{}-{name}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("rc-sort-tidy-{}-{name}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     let home = root.join("home");
     fs::create_dir_all(home.join(".bashrc.d")).unwrap();
@@ -168,7 +168,7 @@ fn single_file_outside_bashrc_d() {
 fn refuses_watched_files() {
     let p = setup("watched", &[]);
     let r = run_tidy(&p, Some(p.home.join(".bashrc")), &mut Cursor::new(&b"y\n"[..]), &mut Vec::new());
-    assert!(r.unwrap_err().to_string().contains("bashrc-sort once"));
+    assert!(r.unwrap_err().to_string().contains("rc-sort once"));
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn hook_warns_about_unsorted_files() {
     run_prompt(&p, &mut Cursor::new(&b""[..]), &mut out).unwrap();
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "bashrc-sort: not sorted yet in ~/.bashrc.d: 10-node.sh (run: bashrc-sort tidy)\n"
+        "rc-sort: not sorted yet in ~/.bashrc.d: 10-node.sh (run: rc-sort tidy)\n"
     );
     assert!(!p.state_dir().exists(), "warning stays read-only");
 }
@@ -225,24 +225,24 @@ fn hook_warns_about_unsorted_files() {
 
 #[test]
 fn install_writes_hook_and_unit_once() {
-    use bashrc_sort::install::{install_files, unit_path};
+    use rc_sort::install::{install_files, unit_path};
     let p = setup("install", &[]);
     let first = install_files(&p).unwrap();
     assert_eq!(first.len(), 2);
-    let hook = rc(&p, "zz-bashrc-sort.sh").unwrap();
-    assert!(hook.contains("bashrc-sort\" prompt"));
-    assert!(fs::read_to_string(unit_path(&p)).unwrap().contains("ExecStart=%h/.cargo/bin/bashrc-sort watch"));
+    let hook = rc(&p, "zz-rc-sort.sh").unwrap();
+    assert!(hook.contains("rc-sort\" prompt"));
+    assert!(fs::read_to_string(unit_path(&p)).unwrap().contains("ExecStart=%h/.cargo/bin/rc-sort watch"));
     assert!(install_files(&p).unwrap().is_empty(), "second run changes nothing");
     assert!(unsorted(&p).unwrap().is_empty(), "the hook itself is never 'unsorted'");
 }
 
 #[test]
 fn uninstall_removes_only_hook_and_unit() {
-    use bashrc_sort::install::{install_files, uninstall_files, unit_path};
+    use rc_sort::install::{install_files, uninstall_files, unit_path};
     let p = setup("uninstall", &[("tools.sh", NODE)]);
     install_files(&p).unwrap();
     assert_eq!(uninstall_files(&p).unwrap().len(), 2);
-    assert_eq!(rc(&p, "zz-bashrc-sort.sh"), None);
+    assert_eq!(rc(&p, "zz-rc-sort.sh"), None);
     assert!(!unit_path(&p).exists());
     assert_eq!(rc(&p, "tools.sh").unwrap(), NODE, "sorted files stay");
     assert!(uninstall_files(&p).unwrap().is_empty(), "second run is a no-op");

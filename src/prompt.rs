@@ -32,9 +32,9 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
 
     for item in pending {
         let header = if item.note.is_empty() {
-            format!("bashrc-sort: unsure where this block from ~/{} goes:", item.file)
+            format!("rc-sort: unsure where this block from ~/{} goes:", item.file)
         } else {
-            format!("bashrc-sort: {}; this one from ~/{} may be a duplicate:", item.note, item.file)
+            format!("rc-sort: {}; this one from ~/{} may be a duplicate:", item.note, item.file)
         };
         let answer = ask(&header, &item.text, input, out)?;
         if let Answer::Later = answer {
@@ -50,7 +50,7 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
                     state.kept.insert(item.hash);
                     writeln!(
                         out,
-                        "bashrc-sort: left in ~/{}: it changed since, or it is half of an if/loop",
+                        "rc-sort: left in ~/{}: it changed since, or it is half of an if/loop",
                         item.file
                     )?;
                 }
@@ -72,7 +72,7 @@ fn warn_unsorted(p: &Paths, out: &mut impl Write) -> Result<()> {
     if let Ok(names) = crate::tidy::unsorted(p)
         && !names.is_empty()
     {
-        writeln!(out, "bashrc-sort: not sorted yet in ~/.bashrc.d: {} (run: bashrc-sort tidy)", names.join(", "))?;
+        writeln!(out, "rc-sort: not sorted yet in ~/.bashrc.d: {} (run: rc-sort tidy)", names.join(", "))?;
     }
     Ok(())
 }

@@ -22,7 +22,7 @@ impl Paths {
     }
 
     pub fn state_dir(&self) -> PathBuf {
-        self.home.join(".local/state/bashrc-sort")
+        self.home.join(".local/state/rc-sort")
     }
 }
 
@@ -48,7 +48,7 @@ pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
     let dir = real.parent().context("path has no parent")?;
     fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     let name = real.file_name().context("path has no file name")?.to_string_lossy();
-    let tmp = dir.join(format!("{name}.bashrc-sort.tmp"));
+    let tmp = dir.join(format!("{name}.rc-sort.tmp"));
     let mut f = File::create(&tmp).with_context(|| format!("creating {}", tmp.display()))?;
     f.write_all(content.as_bytes())
         .and_then(|_| f.sync_all())
@@ -174,7 +174,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     fn tmp_home(name: &str) -> Paths {
-        let home = std::env::temp_dir().join(format!("bashrc-sort-test-{}-{name}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("rc-sort-test-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
         Paths { home, skel: PathBuf::from("/nonexistent") }

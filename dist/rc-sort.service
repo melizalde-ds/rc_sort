@@ -2,7 +2,7 @@
 Description=Keep ~/.bashrc and ~/.bash_profile sorted into ~/.bashrc.d
 
 [Service]
-ExecStart=%h/.cargo/bin/bashrc-sort watch
+ExecStart=%h/.cargo/bin/rc-sort watch
 Restart=on-failure
 RestartSec=2
 

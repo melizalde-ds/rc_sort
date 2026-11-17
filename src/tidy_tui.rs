@@ -1,4 +1,4 @@
-//! Inline front end for `bashrc-sort tidy`: a box drawn below the prompt (fits the content,
+//! Inline front end for `rc-sort tidy`: a box drawn below the prompt (fits the content,
 //! at most 60% of the terminal), blocks grouped by source file with a diff preview, and a
 //! short summary left in scrollback when it closes. Same plan and same apply as the plain
 //! prompts (`tidy::run_tidy`); only how you choose differs.
@@ -63,11 +63,11 @@ fn hex(v: u32) -> Color {
 }
 
 impl Theme {
-    /// `BASHRC_SORT_THEME=ansi|dark|light` wins; otherwise `COLORTERM=truecolor|24bit` gets
+    /// `RC_SORT_THEME=ansi|dark|light` wins; otherwise `COLORTERM=truecolor|24bit` gets
     /// the dark palette (most terminals; asking the terminal for its background is
     /// unreliable over tmux and ssh) and anything else the 16 colors.
     pub(crate) fn detect() -> Theme {
-        let tier = match std::env::var("BASHRC_SORT_THEME").as_deref() {
+        let tier = match std::env::var("RC_SORT_THEME").as_deref() {
             Ok("ansi") => Tier::Ansi,
             Ok("dark") => Tier::Dark,
             Ok("light") => Tier::Light,
@@ -252,7 +252,7 @@ pub fn run(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<(
     // Notes from planning (files left alone, skipped files) print above the box and stay.
     let mut plan = plan(p, target, out)?;
     if plan.items.is_empty() {
-        writeln!(out, "bashrc-sort: nothing to tidy")?;
+        writeln!(out, "rc-sort: nothing to tidy")?;
         return Ok(());
     }
     out.flush()?;
@@ -664,7 +664,7 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
     let mut title = vec![
         Span::raw(" "),
         Span::styled(g.logo, t.accent().bold()),
-        Span::styled(" bashrc-sort tidy   ", Style::new().bold()),
+        Span::styled(" rc-sort tidy   ", Style::new().bold()),
         Span::styled(g.full.repeat(filled), if done { t.good() } else { t.accent() }),
         Span::styled(g.empty.repeat(BAR - filled), t.muted()),
         Span::raw(" "),
@@ -853,7 +853,7 @@ fn preview(plan: &Plan, sel: usize, g: &Glyphs, t: &Theme) -> (Line<'static>, Ve
 /// What stays in scrollback once the box is gone. `skipped` is `None` when nothing was
 /// applied, else the sources `apply` skipped because they changed meanwhile.
 pub(crate) fn summary(plan: &Plan, skipped: Option<&[usize]>, backups: &str, width: usize, g: &Glyphs) -> Vec<String> {
-    let mut out = vec![format!("{} bashrc-sort tidy", g.title)];
+    let mut out = vec![format!("{} rc-sort tidy", g.title)];
     let Some(skipped) = skipped else {
         out.push(format!("{} nothing changed", g.end));
         return out;
@@ -944,7 +944,7 @@ mod tests {
     const FILE: &str = "alias g=git\n\nssh-agent -s > /dev/null\n";
 
     fn setup(name: &str) -> Paths {
-        let home = std::env::temp_dir().join(format!("bashrc-sort-tui-{}-{name}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("rc-sort-tui-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join(".bashrc.d")).unwrap();
         fs::write(home.join(".bashrc.d/30-x.sh"), FILE).unwrap();
@@ -1095,7 +1095,7 @@ mod tests {
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
         let mut app = App::default();
         let s = screen(&app, &plan, 110, 10);
-        for want in ["◆ bashrc-sort tidy", "▰▰▰▰▱▱▱▱ 1/2 decided", "1 move · 0 keep · 0 remove", "30-x.sh ─",
+        for want in ["◆ rc-sort tidy", "▰▰▰▰▱▱▱▱ 1/2 decided", "1 move · 0 keep · 0 remove", "30-x.sh ─",
                      "─ keeps 1 block", "▌ ✓  alias g=git", "● aliases", "?  ssh-agent", "◐ later", "aliases.sh · new file",
                      "+ alias g=git", "t tools  e exports  a aliases  f functions  k keep  l later  r reset",
                      "tab next unsure · ↑↓ select · y apply", "╭", "┬", "┴"] {
@@ -1241,7 +1241,7 @@ mod tests {
         let p = setup("summary");
         let mut plan = plan(&p, None, &mut Vec::new()).unwrap();
         plan.items[1].act = Act::Keep;
-        assert_eq!(summary(&plan, None, "~/b", 80, &UNICODE), vec!["◇ bashrc-sort tidy", "└ nothing changed"]);
+        assert_eq!(summary(&plan, None, "~/b", 80, &UNICODE), vec!["◇ rc-sort tidy", "└ nothing changed"]);
         let s = summary(&plan, Some(&[]), "~/b", 80, &UNICODE);
         assert_eq!(s[1], "│ alias g=git → aliases.sh");
         assert_eq!(s[2], "│ kept: ssh-agent -s > /dev/null");

@@ -29,7 +29,7 @@ pub fn run_watch(p: &Paths) -> Result<()> {
             }
             Err(e) => {
                 // Events may be lost (e.g. queue overflow): check the files anyway.
-                eprintln!("bashrc-sort: watch error: {e}");
+                eprintln!("rc-sort: watch error: {e}");
                 pass(p);
             }
         }
@@ -40,6 +40,6 @@ pub fn run_watch(p: &Paths) -> Result<()> {
 /// A failed pass is logged (journal) and the service keeps running.
 fn pass(p: &Paths) {
     if let Err(e) = run_once(p) {
-        eprintln!("bashrc-sort: {e:#}");
+        eprintln!("rc-sort: {e:#}");
     }
 }

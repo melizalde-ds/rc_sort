@@ -1,5 +1,5 @@
-use bashrc_sort::sort::run_once;
-use bashrc_sort::state::{hash, Paths, State};
+use rc_sort::sort::run_once;
+use rc_sort::state::{hash, Paths, State};
 use std::fs;
 use std::path::PathBuf;
 
@@ -16,7 +16,7 @@ fn skel(file: &str) -> String {
 
 /// Temp HOME with default rc files and `tools.sh` = "# tools\n".
 fn setup(name: &str) -> Paths {
-    let root = std::env::temp_dir().join(format!("bashrc-sort-e2e-{}-{name}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("rc-sort-e2e-{}-{name}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     let home = root.join("home");
     fs::create_dir_all(home.join(".bashrc.d")).unwrap();
@@ -49,7 +49,7 @@ fn bun_moves_to_tools_once() {
     assert_eq!(tools.matches("# bun").count(), 1);
     assert!(tools.contains(BUN.trim_end()));
     let s = State::load(&p).unwrap();
-    assert_eq!(s.messages, vec!["bashrc-sort: moved bun block from ~/.bash_profile to tools.sh"]);
+    assert_eq!(s.messages, vec!["rc-sort: moved bun block from ~/.bash_profile to tools.sh"]);
     assert_eq!(fs::read_dir(p.state_dir().join("backups")).unwrap().count(), 1);
 }
 
@@ -156,7 +156,7 @@ fn real_edited_bash_profile_with_installer_append() {
 
 // ---- prompt ----
 
-use bashrc_sort::prompt::run_prompt;
+use rc_sort::prompt::run_prompt;
 use std::io::Cursor;
 
 fn prompt(p: &Paths, input: &str) -> String {
@@ -179,7 +179,7 @@ fn prompt_prints_messages_once() {
     let p = setup("pmsg");
     append(&p, ".bashrc", "alias zz=\"ls\"\n");
     run_once(&p).unwrap();
-    assert!(prompt(&p, "").contains("bashrc-sort: moved alias zz=\"ls\" block from ~/.bashrc to aliases.sh"));
+    assert!(prompt(&p, "").contains("rc-sort: moved alias zz=\"ls\" block from ~/.bashrc to aliases.sh"));
     assert_eq!(prompt(&p, ""), "");
 }
 
@@ -188,7 +188,7 @@ fn prompt_answer_t_moves_pending() {
     let p = with_pending("pt");
     let out = prompt(&p, "t\n");
     assert!(out.contains("[t]ools [e]xports [a]liases [f]unctions [k]eep in place"));
-    assert!(out.contains("bashrc-sort: moved ssh-agent -s > /dev/null block from ~/.bashrc to tools.sh"));
+    assert!(out.contains("rc-sort: moved ssh-agent -s > /dev/null block from ~/.bashrc to tools.sh"));
     assert!(read(&p, ".bashrc.d/tools.sh").contains("ssh-agent -s > /dev/null"));
     assert_eq!(read(&p, ".bashrc"), skel(".bashrc"));
     let s = State::load(&p).unwrap();
@@ -242,7 +242,7 @@ fn watch_sorts_on_change_and_on_startup() {
     // Edit made while the service was down: sorted by the startup pass.
     append(&p, ".bash_profile", "\nalias early=\"ls\"\n");
     let p2 = p.clone();
-    std::thread::spawn(move || bashrc_sort::watch::run_watch(&p2));
+    std::thread::spawn(move || rc_sort::watch::run_watch(&p2));
     let wait_for = |rel: &str, needle: &str| {
         for _ in 0..50 {
             if fs::read_to_string(p.home.join(rel)).is_ok_and(|s| s.contains(needle)) {

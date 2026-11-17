@@ -1,4 +1,4 @@
-//! `bashrc-sort tidy [path]`: sorts files already in `~/.bashrc.d` (or a file or dir you
+//! `rc-sort tidy [path]`: sorts files already in `~/.bashrc.d` (or a file or dir you
 //! name) into aliases.sh / exports.sh / functions.sh / tools.sh. Interactive: shows the plan,
 //! asks about unsure blocks, and changes nothing until you answer `y`.
 
@@ -192,7 +192,7 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
     let mut items: Vec<Item> = Vec::new();
     for (si, s) in srcs.iter().enumerate() {
         if let Some(why) = &s.scan.problem {
-            writeln!(out, "bashrc-sort: left {} alone: {why}", s.shown)?;
+            writeln!(out, "rc-sort: left {} alone: {why}", s.shown)?;
             continue;
         }
         for b in &s.scan.blocks {
@@ -237,7 +237,7 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
     let mut plan = plan(p, target, out)?;
     let sure: Vec<String> = plan.items.iter().filter(|i| i.note.is_none()).map(|i| plan.describe(i)).collect();
     if !sure.is_empty() {
-        writeln!(out, "bashrc-sort tidy will:")?;
+        writeln!(out, "rc-sort tidy will:")?;
         for line in &sure {
             writeln!(out, "  {line}")?;
         }
@@ -246,9 +246,9 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
         let Some(note) = plan.items[idx].note.clone() else { continue };
         let shown = plan.srcs[plan.items[idx].src].shown.clone();
         let header = if note.is_empty() {
-            format!("bashrc-sort: unsure where this block from {shown} goes:")
+            format!("rc-sort: unsure where this block from {shown} goes:")
         } else {
-            format!("bashrc-sort: {note}; this one from {shown} may be a duplicate:")
+            format!("rc-sort: {note}; this one from {shown} may be a duplicate:")
         };
         let block = plan.items[idx].block.clone();
         match ask(&header, &block.text, input, out)? {
@@ -263,7 +263,7 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
     }
 
     if !plan.has_changes() {
-        writeln!(out, "bashrc-sort: nothing to tidy")?;
+        writeln!(out, "rc-sort: nothing to tidy")?;
         return Ok(());
     }
     write!(out, "Apply? [y/N]: ")?;
@@ -271,7 +271,7 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
     let mut line = String::new();
     input.read_line(&mut line)?;
     if !line.trim().eq_ignore_ascii_case("y") {
-        writeln!(out, "bashrc-sort: nothing changed")?;
+        writeln!(out, "rc-sort: nothing changed")?;
         return Ok(());
     }
     apply(p, &plan, out).map(|_| ())
@@ -288,7 +288,7 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
             continue;
         }
         if fs::read_to_string(&s.path).ok().as_deref() != Some(s.text.as_str()) {
-            writeln!(out, "bashrc-sort: {} changed while you were answering; run tidy again", s.shown)?;
+            writeln!(out, "rc-sort: {} changed while you were answering; run tidy again", s.shown)?;
             skipped.push(si);
             continue;
         }
@@ -301,7 +301,7 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
                 }
                 Act::Dup(other) => writeln!(
                     out,
-                    "bashrc-sort: removed duplicate {} block from {} (already in {other})",
+                    "rc-sort: removed duplicate {} block from {} (already in {other})",
                     i.name, s.shown
                 )?,
                 Act::Keep | Act::Leave => {}
@@ -310,7 +310,7 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
         let (rest, delete) = plan.leftover(si);
         if delete {
             fs::remove_file(&s.path).with_context(|| format!("removing {}", s.path.display()))?;
-            writeln!(out, "bashrc-sort: removed {} (empty now)", s.shown)?;
+            writeln!(out, "rc-sort: removed {} (empty now)", s.shown)?;
         } else {
             atomic_write(&s.path, &rest)?;
         }
@@ -319,10 +319,10 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
         plan.items.iter().filter(|i| i.act == Act::Keep).map(|i| hash(&i.block.text)).collect();
     if !kept.is_empty() {
         save_kept(p, &kept)?;
-        writeln!(out, "bashrc-sort: kept {} block(s) in place; tidy won't ask about them again", kept.len())?;
+        writeln!(out, "rc-sort: kept {} block(s) in place; tidy won't ask about them again", kept.len())?;
     }
-    writeln!(out, "bashrc-sort: done; backups in {}", p.state_dir().join("backups").display())?;
-    writeln!(out, "bashrc-sort: open shells keep the old setup until you run: source ~/.bashrc")?;
+    writeln!(out, "rc-sort: done; backups in {}", p.state_dir().join("backups").display())?;
+    writeln!(out, "rc-sort: open shells keep the old setup until you run: source ~/.bashrc")?;
     Ok(skipped)
 }
 
@@ -367,18 +367,18 @@ fn collect(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<V
         let in_rc = rc.as_deref().is_some_and(|r| real.parent() == Some(r));
         if WATCHED.iter().any(|w| real == home.join(w)) {
             if !meta.is_dir() {
-                bail!("{shown} is kept at its default by the service; use `bashrc-sort once` for it");
+                bail!("{shown} is kept at its default by the service; use `rc-sort once` for it");
             }
             continue;
         }
-        if in_rc && (is_category_file(&name) || name == HOOK || name.ends_with(".bashrc-sort.tmp")) {
+        if in_rc && (is_category_file(&name) || name == HOOK || name.ends_with(".rc-sort.tmp")) {
             if !meta.is_dir() {
-                writeln!(out, "bashrc-sort: {shown} is already one of the sorted files")?;
+                writeln!(out, "rc-sort: {shown} is already one of the sorted files")?;
             }
             continue;
         }
         let Ok(text) = fs::read_to_string(&real) else {
-            writeln!(out, "bashrc-sort: skipped {shown}: not a text file")?;
+            writeln!(out, "rc-sort: skipped {shown}: not a text file")?;
             continue;
         };
         let scan = scan_text(&text);

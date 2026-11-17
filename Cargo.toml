@@ -1,5 +1,5 @@
 [package]
-name = "bashrc-sort"
+name = "rc-sort"
 version = "0.1.0"
 edition = "2024"
 
@@ -13,5 +13,5 @@ ratatui = { version = "0.30.2", optional = true, default-features = false, featu
 
 [features]
 default = ["tui"]
-# `bashrc-sort tidy` opens a full-screen picker in a terminal; without it, tidy is always plain.
+# `rc-sort tidy` opens a full-screen picker in a terminal; without it, tidy is always plain.
 tui = ["dep:ratatui"]

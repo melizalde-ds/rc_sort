@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::fs;
 
 /// The shell hook, installed into `~/.bashrc.d/`. Never sorted.
-pub const HOOK: &str = "zz-bashrc-sort.sh";
+pub const HOOK: &str = "zz-rc-sort.sh";
 
 /// One pass over both watched files: move sure blocks, record unsure ones as pending.
 pub fn run_once(p: &Paths) -> Result<()> {
@@ -69,7 +69,7 @@ pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Categor
 fn rewrite(p: &Paths, file: &str, current: &str, blocks: &[&Block]) -> Result<()> {
     let path = p.home.join(file);
     if read_opt(&path)?.as_deref() != Some(current) {
-        eprintln!("bashrc-sort: ~/{file} changed during the pass, leaving it for the next one");
+        eprintln!("rc-sort: ~/{file} changed during the pass, leaving it for the next one");
         return Ok(());
     }
     atomic_write(&path, &without(current, blocks))
@@ -88,7 +88,7 @@ pub fn block_name(b: &Block) -> String {
 fn scan(p: &Paths, file: &str) -> Result<Option<(String, Vec<Block>)>> {
     let Some(current) = read_opt(&p.home.join(file))? else { return Ok(None) };
     let Some(default) = read_opt(&p.skel.join(file))? else {
-        eprintln!("bashrc-sort: no default {}, skipping ~/{file}", p.skel.join(file).display());
+        eprintln!("rc-sort: no default {}, skipping ~/{file}", p.skel.join(file).display());
         return Ok(None);
     };
     let added = added_lines(&default, &current);
@@ -107,7 +107,7 @@ pub(crate) fn place(
     skip: Option<&str>,
 ) -> Result<String> {
     if let Some(other) = dup_in(&rc_files(p)?, text, skip) {
-        return Ok(format!("bashrc-sort: removed duplicate {name} block from {from} (already in {other})"));
+        return Ok(format!("rc-sort: removed duplicate {name} block from {from} (already in {other})"));
     }
     let path = p.rc_dir().join(cat.file_name());
     let mut target = read_opt(&path)?.unwrap_or_default();
@@ -120,7 +120,7 @@ pub(crate) fn place(
     target.push_str(&normalize(text));
     target.push('\n');
     atomic_write(&path, &target)?;
-    Ok(format!("bashrc-sort: moved {name} block from {from} to {}", cat.file_name()))
+    Ok(format!("rc-sort: moved {name} block from {from} to {}", cat.file_name()))
 }
 
 /// `(name, text)` of every file in `~/.bashrc.d` the sorter reads, sorted by name: regular,
@@ -136,7 +136,7 @@ pub(crate) fn rc_files(p: &Paths) -> Result<Vec<(String, String)>> {
     for e in entries {
         let e = e.with_context(|| format!("reading {}", dir.display()))?;
         let name = e.file_name().to_string_lossy().into_owned();
-        if name == HOOK || name.ends_with(".bashrc-sort.tmp") || !e.path().is_file() {
+        if name == HOOK || name.ends_with(".rc-sort.tmp") || !e.path().is_file() {
             continue;
         }
         if let Ok(text) = fs::read_to_string(e.path()) {
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn rewrite_skips_file_changed_since_read() {
-        let home = std::env::temp_dir().join(format!("bashrc-sort-test-{}-rewrite", std::process::id()));
+        let home = std::env::temp_dir().join(format!("rc-sort-test-{}-rewrite", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
         let p = Paths { home, skel: "/nonexistent".into() };

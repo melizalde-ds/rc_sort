@@ -1,4 +1,4 @@
-# bashrc-sort: design
+# rc-sort: design
 
 ## Why
 
@@ -75,7 +75,7 @@ default, and the next terminal says what happened.
 (Builder's call: exact regexes and known-tool list.)
 
 ### Moving a sure block
-1. Back up the watched file to `~/.local/state/bashrc-sort/backups/<file>.<timestamp>`.
+1. Back up the watched file to `~/.local/state/rc-sort/backups/<file>.<timestamp>`.
 2. If the identical block (ignoring surrounding whitespace) is already in the target
    file, do not append it again (this is how duplicates died).
    Otherwise append it to the target, preceded by a blank line.
@@ -84,7 +84,7 @@ default, and the next terminal says what happened.
    as **unsure** instead (decided 2026-11-05): leave it and ask, so neither a silent
    duplicate nor a silent drop happens.
 3. Remove the block from the watched file. All writes are atomic (temp file + rename).
-4. Record message: `bashrc-sort: moved bun block from ~/.bash_profile to tools.sh`.
+4. Record message: `rc-sort: moved bun block from ~/.bash_profile to tools.sh`.
 
 ### Unsure blocks
 - Left in the watched file, untouched. Recorded as pending (keyed by content hash) so it
@@ -96,8 +96,8 @@ default, and the next terminal says what happened.
 - Empty input / Ctrl-C → stays pending; asked again next terminal.
 
 ### Shell hook
-- `~/.bashrc.d/zz-bashrc-sort.sh` (sorts last). If interactive and TTY, runs
-  `bashrc-sort prompt`, which prints pending messages, asks about pending blocks,
+- `~/.bashrc.d/zz-rc-sort.sh` (sorts last). If interactive and TTY, runs
+  `rc-sort prompt`, which prints pending messages, asks about pending blocks,
   then clears what it showed. It must exit fast (<50 ms) when there is nothing pending,
   and a missing binary must not break the shell.
 - The service never moves its own hook file or anything in `~/.bashrc.d/`.
@@ -115,7 +115,7 @@ default, and the next terminal says what happened.
 - Rust. systemd user service.
 - Any change gets sorted, installer or user.
 - Unsure → ask in the next terminal; sure → move + one-line message.
-- Project lives in `~/dev/bashrc-sort`.
+- Project lives in `~/dev/rc-sort`.
 
 ## Claude's calls (user can override)
 
@@ -123,18 +123,18 @@ default, and the next terminal says what happened.
 - `~/.profile` is not watched (bash ignores it when `~/.bash_profile` exists).
 - PATH changes count as tools, even for things like dotnet that currently sit in
   `exports.sh`. Existing files are not touched.
-- State in `~/.local/state/bashrc-sort/`: `pending.json`, `messages`, `kept`, `backups/`.
+- State in `~/.local/state/rc-sort/`: `pending.json`, `messages`, `kept`, `backups/`.
   Backups are never pruned automatically.
 - Single binary with subcommands: `watch` (service), `prompt` (hook), `once` (one pass,
   for testing). Installed with `cargo install --path .` to `~/.cargo/bin`.
 - Crates: `notify` (+ debouncer), `similar` (diff), `serde_json`, `anyhow` (errors; user request 2026-11-05). Nothing else unless needed.
 - Service and hook both touch the state files: every write is atomic, and both take
-  an exclusive lock on `~/.local/state/bashrc-sort/lock` while reading-modifying-writing.
+  an exclusive lock on `~/.local/state/rc-sort/lock` while reading-modifying-writing.
 - A missing target file in `~/.bashrc.d/` is created.
 - Editing with nano while the service runs: the line moves out on save; if nano saves
   again with the line, dedup (step 2 of Moving) removes it again without a duplicate.
 - The hook file and systemd unit are embedded in the binary and written by
-  `bashrc-sort install` (changed 2026-11-15, user request), which then enables and
+  `rc-sort install` (changed 2026-11-15, user request), which then enables and
   restarts the service. It refuses to run from anywhere but `~/.cargo/bin`.
 
 ## Left to the builder
@@ -144,7 +144,7 @@ wording, code layout.
 
 ## Tidy (added 2026-11-15)
 
-`bashrc-sort tidy [file-or-dir]` sorts existing files (default: every file in `~/.bashrc.d`
+`rc-sort tidy [file-or-dir]` sorts existing files (default: every file in `~/.bashrc.d`
 except the four targets and the hook) with the same rules. Every line counts as added.
 - Plan first, then decide, then apply only on `y`. Lock held only while writing; a file that
   changed during the questions is skipped. "Keep in place" is saved on apply too, so declining
@@ -179,7 +179,7 @@ except the four targets and the hook) with the same rules. Every line counts as 
     accent cyan, good green, attention yellow, danger red, muted dim, no backgrounds. True
     color (`COLORTERM=truecolor|24bit`, dark background assumed): accent violet #a78bfa, good
     #86efac, attention #fcd34d, danger #fca5a5, muted #8b8fa3, and a surface tint #2a2d3e behind
-    the selected row, badges and key caps. `BASHRC_SORT_THEME=ansi|dark|light` overrides (light
+    the selected row, badges and key caps. `RC_SORT_THEME=ansi|dark|light` overrides (light
     uses darker shades on #e6e6f0). Asking the terminal for its background (OSC 11) is not done:
     unreliable over tmux/ssh. No black/white text in any tier; every color comes with an icon
     or a word. A unit test checks every drawn cell of every tier against this.
