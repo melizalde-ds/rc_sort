@@ -478,11 +478,10 @@ impl App {
             }
             KeyCode::Char(c) => {
                 if let Some(cat) = Category::from_key(c) {
-                    let item = &mut plan.items[self.sel];
-                    if item.block.balanced {
-                        item.act = Act::Move(cat);
+                    if plan.can_move(self.sel, cat) {
+                        plan.items[self.sel].act = Act::Move(cat);
                     } else {
-                        self.status = "this block is half of an if/loop, so it can't be moved".into();
+                        self.status = "this block is half of an if/loop, or not one function, so it can't go there".into();
                     }
                 }
             }
@@ -540,7 +539,7 @@ fn badge_span(act: &Act, g: &Glyphs, t: &Theme) -> Span<'static> {
 /// The choice in words: `tools`, `exports`, `aliases`, `functions`, `keep`, `later`, `remove`.
 fn word(act: &Act) -> String {
     match act {
-        Act::Move(cat) => cat.file_name().trim_end_matches(".sh").to_string(),
+        Act::Move(cat) => cat.stem().to_string(),
         Act::Keep => "keep".into(),
         Act::Leave => "later".into(),
         Act::Dup(_) => "remove".into(),
@@ -819,8 +818,8 @@ fn preview(plan: &Plan, sel: usize, g: &Glyphs, t: &Theme) -> (Line<'static>, Ve
     let src = file_name(&plan.srcs[item.src].shown).to_string();
     let (what, rest) = match &item.act {
         Act::Move(cat) => {
-            let name = cat.file_name();
-            let target = plan.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.as_str());
+            let name = plan.target(item, *cat);
+            let target = plan.files.iter().find(|(n, _)| *n == name).map(|(_, t)| t.as_str());
             if let Some(text) = target {
                 let tail: Vec<&str> = text.lines().collect();
                 for l in &tail[tail.len().saturating_sub(TAIL)..] {
@@ -828,7 +827,7 @@ fn preview(plan: &Plan, sel: usize, g: &Glyphs, t: &Theme) -> (Line<'static>, Ve
                 }
             }
             lines.extend(item.text.lines().map(|l| shell_line("+ ", l, t.good())));
-            (name.to_string(), if target.is_some() { "end of file".to_string() } else { "new file".to_string() })
+            (name, if target.is_some() { "end of file".to_string() } else { "new file".to_string() })
         }
         Act::Dup(other) => {
             lines.extend(item.block.text.lines().map(|l| shell_line("= ", l, t.muted())));
@@ -864,7 +863,7 @@ pub(crate) fn summary(plan: &Plan, skipped: Option<&[usize]>, backups: &str, wid
         .iter()
         .filter(applied)
         .filter_map(|i| match &i.act {
-            Act::Move(cat) => Some(format!("{} {} {}", i.name, g.arrow, cat.file_name())),
+            Act::Move(cat) => Some(format!("{} {} {}", i.name, g.arrow, plan.target(i, *cat))),
             _ => None,
         })
         .collect();

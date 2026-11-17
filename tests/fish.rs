@@ -251,3 +251,73 @@ fn watch_sorts_fish_changes() {
     });
     assert!(sorted);
 }
+
+fn conf_d(p: &Paths, files: &[(&str, &str)]) {
+    let dir = p.home.join(".config/fish/conf.d");
+    fs::create_dir_all(&dir).unwrap();
+    for (name, text) in files {
+        fs::write(dir.join(name), text).unwrap();
+    }
+}
+
+fn tidy(p: &Paths, input: &str) -> String {
+    let mut out = Vec::new();
+    rc_sort::tidy::run_tidy(p, None, &mut std::io::Cursor::new(input.as_bytes()), &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+const PROMPT: &str = "if status is-interactive\n    starship init fish | source\n    zoxide init fish | source\nend\n";
+const PATHS: &str = "fish_add_path ~/.cargo/bin ~/.local/bin\n";
+
+#[test]
+fn tidy_sorts_conf_d_files_into_tools_in_order() {
+    // Arrange
+    let p = setup("tidy");
+    conf_d(&p, &[("prompt.fish", PROMPT), ("paths.fish", PATHS)]);
+
+    // Act
+    tidy(&p, "y\n");
+
+    // Assert
+    assert_eq!(read(&p, "conf.d/tools.fish").unwrap(), format!("{PATHS}\n{PROMPT}"));
+    assert_eq!(read(&p, "conf.d/prompt.fish"), None);
+}
+
+#[test]
+fn unsorted_names_fish_conf_d_files() {
+    // Arrange
+    let p = setup("unsorted");
+    conf_d(&p, &[("paths.fish", PATHS), ("tools.fish", PROMPT)]);
+
+    // Act
+    let names = rc_sort::tidy::unsorted(&p).unwrap();
+
+    // Assert
+    assert_eq!(names, vec!["~/.config/fish/conf.d/paths.fish"]);
+}
+
+#[test]
+fn tidy_wraps_blocks_from_a_fish_guarded_file() {
+    // Arrange
+    let p = setup("tidy-guard");
+    conf_d(&p, &[("z.fish", "status is-interactive; or return\nzoxide init fish | source\n")]);
+
+    // Act
+    tidy(&p, "y\n");
+
+    // Assert
+    assert_eq!(read(&p, "conf.d/tools.fish").unwrap(), "if status is-interactive\n    zoxide init fish | source\nend\n");
+}
+
+#[test]
+fn tidy_will_not_send_a_non_function_to_functions() {
+    // Arrange
+    let p = setup("tidy-function");
+    conf_d(&p, &[("agent.fish", "ssh-agent -c > /dev/null\n")]);
+
+    // Act
+    let out = tidy(&p, "f\n");
+
+    // Assert
+    assert!(out.contains("rc-sort: nothing to tidy"), "{out}");
+}

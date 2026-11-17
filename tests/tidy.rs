@@ -216,7 +216,7 @@ fn hook_warns_about_unsorted_files() {
     run_prompt(&p, &mut Cursor::new(&b""[..]), &mut out).unwrap();
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "rc-sort: not sorted yet in ~/.bashrc.d: 10-node.sh (run: rc-sort tidy)\n"
+        "rc-sort: not sorted yet: ~/.bashrc.d/10-node.sh (run: rc-sort tidy)\n"
     );
     assert!(!p.state_dir().exists(), "warning stays read-only");
 }

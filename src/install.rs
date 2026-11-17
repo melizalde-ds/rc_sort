@@ -68,7 +68,7 @@ pub fn run_install(p: &Paths, out: &mut impl Write) -> Result<()> {
     if let Ok(names) = crate::tidy::unsorted(p)
         && !names.is_empty()
     {
-        writeln!(out, "rc-sort: not sorted yet in ~/.bashrc.d: {}; run: rc-sort tidy", names.join(", "))?;
+        writeln!(out, "rc-sort: not sorted yet: {}; run: rc-sort tidy", names.join(", "))?;
     }
     writeln!(out, "rc-sort: open a new terminal to see its messages")?;
     Ok(())
