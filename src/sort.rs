@@ -5,7 +5,9 @@ use crate::state::{atomic_write, backup, hash, lock, normalize, read_opt, Paths,
 use crate::shell::Shell;
 use anyhow::{Context, Result};
 use std::collections::HashSet;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::Path;
 
 /// The shell hook, installed into `~/.bashrc.d/`. Never sorted.
 pub const HOOK: &str = "zz-rc-sort.sh";
@@ -145,11 +147,30 @@ fn dedent(text: &str) -> String {
 /// that pass removes the blocks already copied as duplicates.
 fn rewrite(p: &Paths, file: &str, current: &str, blocks: &[&Block]) -> Result<()> {
     let path = p.home.join(file);
-    if read_opt(&path)?.as_deref() != Some(current) {
+    let mut old = File::open(&path).with_context(|| format!("opening {}", path.display()))?;
+    let mut text = String::new();
+    old.read_to_string(&mut text).with_context(|| format!("reading {}", path.display()))?;
+    if text != current {
         eprintln!("rc-sort: ~/{file} changed during the pass, leaving it for the next one");
         return Ok(());
     }
-    atomic_write(&path, &without(current, blocks))
+    replace_keeping_appends(&path, &mut old, &without(current, blocks))
+}
+
+/// Replaces `path` with `text`, then adds back what was appended to the old file past
+/// `old`'s read position: an installer appending during the rename writes to the old file.
+fn replace_keeping_appends(path: &Path, old: &mut File, text: &str) -> Result<()> {
+    atomic_write(path, text)?;
+    let mut late = Vec::new();
+    old.read_to_end(&mut late).with_context(|| format!("reading {}", path.display()))?;
+    if !late.is_empty() {
+        File::options()
+            .append(true)
+            .open(path)
+            .and_then(|mut f| f.write_all(&late))
+            .with_context(|| format!("appending to {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// Short name for messages: the leading comment's text, else the first line (max 40 chars).
@@ -328,6 +349,7 @@ fn pending(file: &str, b: &Block, note: String) -> Pending {
 mod tests {
     use super::*;
     use std::fs;
+    use std::io::{Read, Write};
 
     #[test]
     fn rewrite_skips_file_changed_since_read() {
@@ -340,5 +362,24 @@ mod tests {
         let block = Block { lines: vec![0], text: "a".into(), balanced: true };
         rewrite(&p, ".bashrc", "a\n", &[&block]).unwrap();
         assert_eq!(fs::read_to_string(p.home.join(".bashrc")).unwrap(), "a\nb\n");
+    }
+
+    #[test]
+    fn text_appended_after_the_check_survives_the_rewrite() {
+        // Arrange
+        let dir = std::env::temp_dir().join(format!("rc-sort-test-{}-late-append", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".bashrc");
+        fs::write(&path, "a\n").unwrap();
+        let mut old = File::open(&path).unwrap();
+        old.read_to_string(&mut String::new()).unwrap();
+        File::options().append(true).open(&path).unwrap().write_all(b"b\n").unwrap();
+
+        // Act
+        replace_keeping_appends(&path, &mut old, "").unwrap();
+
+        // Assert
+        assert_eq!(fs::read_to_string(&path).unwrap(), "b\n");
     }
 }
