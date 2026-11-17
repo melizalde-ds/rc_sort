@@ -182,7 +182,8 @@ impl Plan {
 
     pub(crate) fn can_move(&self, idx: usize, cat: Category) -> bool {
         let i = &self.items[idx];
-        i.block.balanced && self.srcs[i.src].shell.target_name(cat, &i.text).is_some()
+        let shell = self.srcs[i.src].shell;
+        i.block.balanced && shell.target_name(cat, &i.text).is_some() && shell.syntax_error(&i.block.text).is_none()
     }
 
     pub(crate) fn describe(&self, i: &Item) -> String {
@@ -224,6 +225,8 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             let mut clash = None;
             let (mut act, mut note) = if let Some(other) = dup_in(&sorted_elsewhere[s.shell as usize], &text, skip) {
                 (Act::Dup(other.to_string()), None)
+            } else if let Some(why) = s.shell.syntax_error(&b.text) {
+                (Act::Leave, Some(why))
             } else if let Some(why) = s.shell.distro_clash(p, &b.text)? {
                 (Act::Leave, Some(why))
             } else {
@@ -285,7 +288,7 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
                 plan.items[idx].act = Act::Move(cat);
                 writeln!(out, "  {}", plan.describe(&plan.items[idx]))?;
             }
-            Answer::Move(_) => writeln!(out, "  left in {shown}: it is half of an if/loop, or not one function")?,
+            Answer::Move(_) => writeln!(out, "  left in {shown}: it is half of an if/loop, not one function, or has a syntax error")?,
             Answer::Keep => plan.items[idx].act = Act::Keep,
             Answer::Later => {}
         }

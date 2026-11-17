@@ -413,7 +413,7 @@ impl App {
                     if plan.can_move(self.sel, cat) {
                         plan.items[self.sel].act = Act::Move(cat);
                     } else {
-                        self.status = "this block is half of an if/loop, or not one function, so it can't go there".into();
+                        self.status = "this block is half of an if/loop, not one function, or has a syntax error, so it can't go there".into();
                     }
                 }
             }

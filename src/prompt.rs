@@ -49,7 +49,7 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
                     state.kept.insert(item.hash);
                     writeln!(
                         out,
-                        "rc-sort: left in ~/{}: it changed since, or it is half of an if/loop",
+                        "rc-sort: left in ~/{}: it changed since, is half of an if/loop, or has a syntax error",
                         item.file
                     )?;
                 }

@@ -107,7 +107,7 @@ pub fn run_once(p: &Paths) -> Result<()> {
 }
 
 /// Re-reads `file`, finds the block whose hash == `h`, moves it to `cat` (no duplicate-tool check:
-/// the user decided). Ok(false) if the block is no longer there, or is half of an if/loop
+/// the user decided). Ok(false) if the block is no longer there, has a syntax error, or is half of an if/loop
 /// (moving it would break both files). Caller holds the lock.
 pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Category) -> Result<bool> {
     let Some(shell) = Shell::of(file) else { return Ok(false) };
@@ -115,7 +115,7 @@ pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Categor
     let Some(b) = blocks.iter().find(|b| b.balanced && !leaves_file(b) && hash(&b.text) == h) else {
         return Ok(false);
     };
-    if shell.target_name(cat, &b.text).is_none() {
+    if shell.target_name(cat, &b.text).is_none() || shell.syntax_error(&b.text).is_some() {
         return Ok(false);
     }
     let text = placed_text(shell, enclosure(shell, &current, b), cat, &b.text);

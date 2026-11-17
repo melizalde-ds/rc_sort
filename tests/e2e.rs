@@ -487,3 +487,17 @@ fn path_added_by_a_later_file_too_still_moves() {
     // Assert
     assert!(read(&p, ".bashrc.d/tools.sh").contains("$HOME/y"));
 }
+
+#[test]
+fn half_typed_alias_stays_when_answered() {
+    // Arrange
+    let p = setup("syntax-answer");
+    append(&p, ".bashrc", "alias gs='git sta\n");
+    run_once(&p).unwrap();
+
+    // Act
+    prompt(&p, "a\n");
+
+    // Assert
+    assert!(fs::metadata(p.rc_dir().join("aliases.sh")).is_err());
+}

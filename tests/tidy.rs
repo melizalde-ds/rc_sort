@@ -127,6 +127,30 @@ fn block_shared_by_two_unsorted_files_is_kept_once() {
 }
 
 #[test]
+fn half_typed_alias_is_asked() {
+    // Arrange
+    let p = setup("syntax", &[("old.sh", "alias gs='git sta\n")]);
+
+    // Act
+    let out = tidy(&p, None, "\n");
+
+    // Assert
+    assert!(out.contains("bash -n finds a syntax error in it"), "{out}");
+}
+
+#[test]
+fn half_typed_alias_stays_when_answered() {
+    // Arrange
+    let p = setup("syntax-answer", &[("old.sh", "alias gs='git sta\n")]);
+
+    // Act
+    tidy(&p, None, "a\ny\n");
+
+    // Assert
+    assert_eq!(rc(&p, "aliases.sh"), None);
+}
+
+#[test]
 fn same_tool_elsewhere_is_asked_and_can_be_kept() {
     let p = setup("clash", &[("tools.sh", ". \"$HOME/.cargo/env\"\n"), ("00-paths.sh", PATHS)]);
     let out = tidy(&p, None, "k\ny\n");
