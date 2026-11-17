@@ -201,13 +201,10 @@ impl Plan {
 pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<Plan> {
     let srcs = collect(p, target, out)?;
     let kept = load_kept(p)?;
-    let mut files = Vec::new();
-    for shell in Shell::ALL {
-        files.extend(rc_files(p, shell)?);
-    }
+    let per_shell = Shell::ALL.iter().map(|&shell| rc_files(p, shell)).collect::<Result<Vec<_>>>()?;
     let mut items: Vec<Item> = Vec::new();
     for (si, s) in srcs.iter().enumerate() {
-        let files = rc_files(p, s.shell)?;
+        let files = &per_shell[s.shell as usize];
         if let Some(why) = &s.scan.problem {
             writeln!(out, "rc-sort: left {} alone: {why}", s.shown)?;
             continue;
@@ -221,15 +218,15 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             let text = if s.scan.guard.is_some() && !autoload { s.shell.wrap_interactive(&b.text) } else { b.text.clone() };
             let skip = s.rc_name.as_deref();
             let mut clash = None;
-            let (act, note) = if let Some(other) = dup_in(&files, &text, skip) {
+            let (act, note) = if let Some(other) = dup_in(files, &text, skip) {
                 (Act::Dup(other.to_string()), None)
             } else if let Some(why) = s.shell.distro_clash(p, &b.text)? {
                 (Act::Leave, Some(why))
             } else {
                 match cat {
-                    Some(Category::Tools) => match tool_clash(s.shell, &files, &text, skip) {
+                    Some(Category::Tools) => match tool_clash(s.shell, files, &text, skip) {
                         Some((other, tool)) => {
-                            clash = block_naming(s.shell, &files, &other, tool).map(|t| (other.clone(), t));
+                            clash = block_naming(s.shell, files, &other, tool).map(|t| (other.clone(), t));
                             (Act::Leave, Some(format!("{other} already has a {tool} block")))
                         }
                         None => (Act::Move(Category::Tools), None),
@@ -247,7 +244,7 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             items.push(Item { src: si, block: b.clone(), text, name: block_name(b), act, note, suggested, clash });
         }
     }
-    Ok(Plan { srcs, items, files })
+    Ok(Plan { srcs, items, files: per_shell.concat() })
 }
 
 
