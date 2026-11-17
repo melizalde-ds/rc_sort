@@ -115,6 +115,18 @@ fn exact_duplicate_in_another_file_is_dropped() {
 }
 
 #[test]
+fn block_shared_by_two_unsorted_files_is_kept_once() {
+    // Arrange
+    let p = setup("shared", &[("old.sh", "export EDITOR=nano\n"), ("work.sh", "export EDITOR=nano\n")]);
+
+    // Act
+    tidy(&p, None, "e\ny\n");
+
+    // Assert
+    assert_eq!(rc(&p, "exports.sh").as_deref(), Some("export EDITOR=nano\n"));
+}
+
+#[test]
 fn same_tool_elsewhere_is_asked_and_can_be_kept() {
     let p = setup("clash", &[("tools.sh", ". \"$HOME/.cargo/env\"\n"), ("00-paths.sh", PATHS)]);
     let out = tidy(&p, None, "k\ny\n");

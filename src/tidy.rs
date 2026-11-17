@@ -202,6 +202,10 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
     let srcs = collect(p, target, out)?;
     let kept = load_kept(p)?;
     let per_shell = Shell::ALL.iter().map(|&shell| rc_files(p, shell)).collect::<Result<Vec<_>>>()?;
+    let sorted_elsewhere: Vec<Vec<(String, String)>> = per_shell
+        .iter()
+        .map(|files| files.iter().filter(|(n, _)| !srcs.iter().any(|s| s.rc_name.as_deref() == Some(n))).cloned().collect())
+        .collect();
     let mut items: Vec<Item> = Vec::new();
     for (si, s) in srcs.iter().enumerate() {
         let files = &per_shell[s.shell as usize];
@@ -218,7 +222,7 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             let text = if s.scan.guard.is_some() && !autoload { s.shell.wrap_interactive(&b.text) } else { b.text.clone() };
             let skip = s.rc_name.as_deref();
             let mut clash = None;
-            let (mut act, mut note) = if let Some(other) = dup_in(files, &text, skip) {
+            let (mut act, mut note) = if let Some(other) = dup_in(&sorted_elsewhere[s.shell as usize], &text, skip) {
                 (Act::Dup(other.to_string()), None)
             } else if let Some(why) = s.shell.distro_clash(p, &b.text)? {
                 (Act::Leave, Some(why))
