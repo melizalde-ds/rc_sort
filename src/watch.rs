@@ -2,13 +2,14 @@ use crate::sort::run_once;
 use crate::shell::Shell;
 use crate::state::Paths;
 use anyhow::{Context, Result};
-use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
+use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::{new_debouncer, Debouncer};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
 /// The service: one pass now, then one pass per debounced change to a watched file.
-/// Watches the home dir (not the files) so replace-by-rename is seen too.
+/// Watches the folders (not the files) so replace-by-rename is seen too.
 /// Returns only if the watcher itself fails.
 pub fn run_watch(p: &Paths) -> Result<()> {
     for shell in Shell::ALL {
@@ -21,20 +22,16 @@ pub fn run_watch(p: &Paths) -> Result<()> {
     let mut watched: Vec<_> = Shell::ALL.iter().flat_map(|s| s.watched()).map(|w| p.home.join(w)).collect();
     let real: Vec<_> = watched.iter().filter_map(|w| std::fs::canonicalize(w).ok()).collect();
     watched.extend(real);
-    let mut dirs: Vec<_> = watched.iter().filter_map(|w| w.parent()).filter(|d| d.is_dir()).collect();
-    dirs.sort();
-    dirs.dedup();
-    for dir in dirs {
-        debouncer
-            .watcher()
-            .watch(dir, RecursiveMode::NonRecursive)
-            .with_context(|| format!("watching {}", dir.display()))?;
-    }
+    let mut watching = Vec::new();
+    watch_new_dirs(&mut debouncer, &watched, &mut watching)?;
     // Opening a file is an event too, and every pass reads the watched files, so only a
     // changed file starts a pass. Taken before the pass: our own rewrite starts one more.
     let mut seen = snapshot(&watched);
     pass(p);
     for batch in rx {
+        if let Err(e) = watch_new_dirs(&mut debouncer, &watched, &mut watching) {
+            eprintln!("rc-sort: {e:#}");
+        }
         let now = snapshot(&watched);
         match batch {
             // Events may be lost (e.g. queue overflow): check the files anyway.
@@ -46,6 +43,27 @@ pub fn run_watch(p: &Paths) -> Result<()> {
         pass(p);
     }
     anyhow::bail!("file watcher stopped")
+}
+
+/// Watches the nearest existing folder of each file: a missing `~/.config/fish` is watched
+/// for from `~/.config`, and watched itself once it shows up.
+fn watch_new_dirs(
+    debouncer: &mut Debouncer<RecommendedWatcher>,
+    files: &[PathBuf],
+    watching: &mut Vec<PathBuf>,
+) -> Result<()> {
+    for file in files {
+        let Some(dir) = file.ancestors().skip(1).find(|d| d.is_dir()) else { continue };
+        if watching.iter().any(|w| w == dir) {
+            continue;
+        }
+        debouncer
+            .watcher()
+            .watch(dir, RecursiveMode::NonRecursive)
+            .with_context(|| format!("watching {}", dir.display()))?;
+        watching.push(dir.to_path_buf());
+    }
+    Ok(())
 }
 
 fn snapshot(files: &[PathBuf]) -> Vec<Option<(SystemTime, u64)>> {

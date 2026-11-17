@@ -362,3 +362,24 @@ fn export_an_earlier_conf_d_file_also_sets_still_moves() {
     // Assert
     assert!(read(&p, "conf.d/exports.fish").is_some_and(|s| s.contains("nvim")));
 }
+
+#[test]
+fn watch_sorts_a_fish_config_made_after_it_started() {
+    // Arrange
+    let p = setup("watch-late-dir");
+    fs::remove_dir_all(p.home.join(".config/fish")).unwrap();
+    let p2 = p.clone();
+    std::thread::spawn(move || rc_sort::watch::run_watch(&p2));
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+
+    // Act
+    fs::create_dir_all(p.home.join(".config/fish")).unwrap();
+    append(&p, "set -gx EDITOR nvim\n");
+
+    // Assert
+    let sorted = (0..50).any(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        read(&p, "conf.d/exports.fish").is_some_and(|s| s.contains("EDITOR"))
+    });
+    assert!(sorted);
+}
