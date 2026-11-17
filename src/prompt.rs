@@ -42,6 +42,9 @@ pub fn run_prompt(p: &Paths, input: &mut impl BufRead, out: &mut impl Write) -> 
         }
         let _lock = lock(p)?;
         let mut state = State::load(p)?;
+        if !state.pending.iter().any(|x| x.hash == item.hash) {
+            continue;
+        }
         state.pending.retain(|x| x.hash != item.hash);
         match answer {
             Answer::Move(cat) => {

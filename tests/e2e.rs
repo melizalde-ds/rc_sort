@@ -348,3 +348,43 @@ fn command_in_bash_profile_is_asked() {
     assert_eq!(read(&p, ".bash_profile"), before);
     assert_eq!(State::load(&p).unwrap().pending[0].note, "~/.bash_profile runs it once per login; ~/.bashrc.d runs it in every shell");
 }
+
+struct OtherTerminalAnswersFirst<'a> {
+    p: &'a Paths,
+    answer: Cursor<&'static [u8]>,
+    answered: bool,
+}
+
+impl std::io::Read for OtherTerminalAnswersFirst<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        std::io::BufRead::fill_buf(self)?;
+        self.answer.read(buf)
+    }
+}
+
+impl std::io::BufRead for OtherTerminalAnswersFirst<'_> {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        if !self.answered {
+            self.answered = true;
+            prompt(self.p, "t\n");
+        }
+        self.answer.fill_buf()
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.answer.consume(amount);
+    }
+}
+
+#[test]
+fn second_terminal_does_not_keep_a_block_another_terminal_moved() {
+    // Arrange
+    let p = with_pending("two-terminals");
+    let mut input = OtherTerminalAnswersFirst { p: &p, answer: Cursor::new(b"t\n"), answered: false };
+
+    // Act
+    run_prompt(&p, &mut input, &mut Vec::new()).unwrap();
+
+    // Assert
+    assert!(State::load(&p).unwrap().kept.is_empty());
+}
