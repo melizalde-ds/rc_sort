@@ -11,6 +11,11 @@ use std::time::{Duration, SystemTime};
 /// Watches the home dir (not the files) so replace-by-rename is seen too.
 /// Returns only if the watcher itself fails.
 pub fn run_watch(p: &Paths) -> Result<()> {
+    for shell in Shell::ALL {
+        if let Ok(Some(why)) = shell.skip_reason(p) {
+            eprintln!("rc-sort: {why}");
+        }
+    }
     let (tx, rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_secs(1), tx).context("starting file watcher")?;
     let mut watched: Vec<_> = Shell::ALL.iter().flat_map(|s| s.watched()).map(|w| p.home.join(w)).collect();
