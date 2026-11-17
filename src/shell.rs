@@ -2,7 +2,9 @@ use crate::blocks::{bash_depth, fish_depth, Block};
 use crate::classify::{classify_bash, classify_fish, fish_defined_names, function_name, Category};
 use crate::state::{read_opt, Paths};
 use anyhow::Result;
+use std::io::Write;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 const FISH_TEMPLATE: &str = "if status is-interactive\n    # Commands to run in interactive sessions can go here\nend\n";
 
@@ -65,6 +67,23 @@ impl Shell {
             let theirs = fish_defined_names(theirs);
             ours.iter().find(|n| theirs.contains(n)).map(|n| format!("{from} also defines {n}"))
         }))
+    }
+
+    pub fn syntax_error(self, text: &str) -> Option<String> {
+        let check = match self {
+            Shell::Bash => ["bash", "-n"],
+            Shell::Fish => ["fish", "--no-execute"],
+        };
+        let mut child = Command::new(check[0])
+            .arg(check[1])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let wrote = child.stdin.take().is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+        let passed = child.wait().is_ok_and(|status| status.success());
+        (wrote && !passed).then(|| format!("{} finds a syntax error in it", check.join(" ")))
     }
 
     pub fn depth_delta(self, line: &str) -> i32 {

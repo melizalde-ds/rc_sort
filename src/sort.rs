@@ -26,6 +26,10 @@ pub fn run_once(p: &Paths) -> Result<()> {
             if state.kept.contains(&h) || state.pending.iter().any(|x| x.hash == h) {
                 continue;
             }
+            if let Some(note) = shell.syntax_error(&b.text) {
+                state.pending.push(pending(file, b, note));
+                continue;
+            }
             if file == ".bash_profile" && runs_a_command(b) {
                 let note = "~/.bash_profile runs it once per login; ~/.bashrc.d runs it in every shell";
                 state.pending.push(pending(file, b, note.into()));

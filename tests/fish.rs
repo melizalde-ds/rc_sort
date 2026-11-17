@@ -321,3 +321,16 @@ fn tidy_will_not_send_a_non_function_to_functions() {
     // Assert
     assert!(out.contains("rc-sort: nothing to tidy"), "{out}");
 }
+
+#[test]
+fn half_typed_fish_alias_is_asked() {
+    // Arrange
+    let p = setup("syntax");
+    append(&p, "alias gs 'git sta\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(State::load(&p).unwrap().pending[0].note, "fish --no-execute finds a syntax error in it");
+}

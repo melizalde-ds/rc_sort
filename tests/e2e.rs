@@ -388,3 +388,16 @@ fn second_terminal_does_not_keep_a_block_another_terminal_moved() {
     // Assert
     assert!(State::load(&p).unwrap().kept.is_empty());
 }
+
+#[test]
+fn half_typed_alias_is_asked() {
+    // Arrange
+    let p = setup("syntax");
+    append(&p, ".bashrc", "alias gs='git sta\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    assert_eq!(State::load(&p).unwrap().pending[0].note, "bash -n finds a syntax error in it");
+}
