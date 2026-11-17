@@ -1,3 +1,5 @@
+use crate::shell::Shell;
+
 /// A group of added lines that moves as one unit.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
@@ -12,14 +14,14 @@ pub struct Block {
 /// Groups added lines into blocks. A block ends at a blank line or at a non-added line,
 /// except a blank line inside an open construct or a `# X` … `# X end` marker pair.
 /// Blocks that are only comments are dropped.
-pub fn split_blocks(current: &str, added: &[usize]) -> Vec<Block> {
+pub fn split_blocks(shell: Shell, current: &str, added: &[usize]) -> Vec<Block> {
     let lines: Vec<&str> = current.lines().collect();
     let mut blocks = Vec::new();
     let mut start = 0;
     for i in 0..added.len() {
         // A non-added line always ends the block: it can't move with it.
         if i + 1 == added.len() || added[i + 1] != added[i] + 1 {
-            split_run(&lines, &added[start..=i], &mut blocks);
+            split_run(shell, &lines, &added[start..=i], &mut blocks);
             start = i + 1;
         }
     }
@@ -27,7 +29,7 @@ pub fn split_blocks(current: &str, added: &[usize]) -> Vec<Block> {
 }
 
 /// Splits one run of consecutive added lines on blank lines.
-fn split_run(lines: &[&str], run: &[usize], blocks: &mut Vec<Block>) {
+fn split_run(shell: Shell, lines: &[&str], run: &[usize], blocks: &mut Vec<Block>) {
     let mut cur = Vec::new();
     let mut depth = 0i32;
     let mut marker_end: Option<String> = None;
@@ -53,7 +55,7 @@ fn split_run(lines: &[&str], run: &[usize], blocks: &mut Vec<Block>) {
                     marker_end = Some(end);
                 }
             }
-        depth += depth_delta(t);
+        depth += shell.depth_delta(t);
         cur.push(idx);
     }
     flush(lines, &mut cur, depth, blocks);
@@ -75,7 +77,7 @@ fn flush(lines: &[&str], cur: &mut Vec<usize>, depth: i32, blocks: &mut Vec<Bloc
 }
 
 /// How much a line opens (+) or closes (-) shell constructs. Comment lines count 0.
-fn depth_delta(t: &str) -> i32 {
+pub(crate) fn bash_depth(t: &str) -> i32 {
     if t.starts_with('#') {
         return 0;
     }
@@ -103,7 +105,7 @@ mod tests {
     /// Every line of `text` counts as added.
     fn all(text: &str) -> Vec<Block> {
         let added: Vec<usize> = (0..text.lines().count()).collect();
-        split_blocks(text, &added)
+        split_blocks(Shell::Bash, text, &added)
     }
 
     #[test]
@@ -167,7 +169,7 @@ mod tests {
 
     #[test]
     fn non_added_line_splits() {
-        let b = split_blocks("alias a=x\nDEFAULT\nalias b=y\n", &[0, 2]);
+        let b = split_blocks(Shell::Bash, "alias a=x\nDEFAULT\nalias b=y\n", &[0, 2]);
         assert_eq!(b.len(), 2);
         assert_eq!(b[0].text, "alias a=x");
         assert_eq!(b[1].text, "alias b=y");

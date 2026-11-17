@@ -3,10 +3,11 @@
 //! asks about unsure blocks, and changes nothing until you answer `y`.
 
 use crate::blocks::{split_blocks, Block};
-use crate::classify::{classify, leaves_file, tools_named, Category};
+use crate::classify::{leaves_file, tools_named, Category};
 use crate::prompt::{ask, Answer};
 use crate::sort::{block_name, dup_in, is_category_file, place, rc_files, tool_clash, without, HOOK};
-use crate::state::{atomic_write, backup, hash, load_kept, lock, Paths, State, WATCHED};
+use crate::state::{atomic_write, backup, hash, load_kept, lock, Paths, State};
+use crate::shell::Shell;
 use anyhow::{bail, Context, Result};
 use std::collections::HashSet;
 use std::fs;
@@ -32,7 +33,7 @@ pub fn scan_text(text: &str) -> Scan {
     });
     let guard = first_code.filter(|&i| is_interactive_guard(lines[i]));
     let lines_in: Vec<usize> = (0..lines.len()).filter(|&i| Some(i) != guard).collect();
-    let blocks = split_blocks(text, &lines_in);
+    let blocks = split_blocks(Shell::Bash, text, &lines_in);
     let problem = blocks.iter().find(|b| leaves_file(b)).map(|b| {
         format!("it has a `return`/`exit` outside a function ({}); sort it by hand", block_name(b))
     });
@@ -205,7 +206,7 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             let (act, note) = if let Some(other) = dup_in(&files, &text, skip) {
                 (Act::Dup(other.to_string()), None)
             } else {
-                match classify(b) {
+                match Shell::Bash.classify(b) {
                     Some(Category::Tools) => match tool_clash(&files, &text, skip) {
                         Some((other, tool)) => {
                             clash = block_naming(&files, &other, tool).map(|t| (other.clone(), t));
@@ -229,7 +230,7 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
 fn block_naming(files: &[(String, String)], file: &str, tool: &str) -> Option<String> {
     let (_, text) = files.iter().find(|(n, _)| n == file)?;
     let lines: Vec<usize> = (0..text.lines().count()).collect();
-    split_blocks(text, &lines).into_iter().find(|b| tools_named(&b.text).contains(&tool)).map(|b| b.text)
+    split_blocks(Shell::Bash, text, &lines).into_iter().find(|b| tools_named(&b.text).contains(&tool)).map(|b| b.text)
 }
 
 /// Plain front end: prints the plan, asks about each unsure block in order, then `Apply? [y/N]`.
@@ -296,7 +297,7 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
         for i in &mine {
             match &i.act {
                 Act::Move(cat) => {
-                    let msg = place(p, &s.shown, &i.name, &i.text, *cat, s.rc_name.as_deref())?;
+                    let msg = place(p, Shell::Bash, &s.shown, &i.name, &i.text, *cat, s.rc_name.as_deref())?;
                     writeln!(out, "{msg}")?;
                 }
                 Act::Dup(other) => writeln!(
@@ -365,7 +366,7 @@ fn collect(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<V
         };
         let name = real.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let in_rc = rc.as_deref().is_some_and(|r| real.parent() == Some(r));
-        if WATCHED.iter().any(|w| real == home.join(w)) {
+        if Shell::ALL.iter().flat_map(|s| s.watched()).any(|w| real == home.join(w)) {
             if !meta.is_dir() {
                 bail!("{shown} is kept at its default by the service; use `rc-sort once` for it");
             }

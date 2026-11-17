@@ -1,5 +1,6 @@
 use crate::sort::run_once;
-use crate::state::{Paths, WATCHED};
+use crate::shell::Shell;
+use crate::state::Paths;
 use anyhow::{Context, Result};
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
 use std::sync::mpsc;
@@ -20,7 +21,7 @@ pub fn run_watch(p: &Paths) -> Result<()> {
         match batch {
             Ok(events) => {
                 let ours = events.iter().any(|e| {
-                    e.path.file_name().is_some_and(|n| WATCHED.iter().any(|w| n == *w))
+                    e.path.file_name().is_some_and(|n| Shell::ALL.iter().flat_map(|s| s.watched()).any(|w| n == *w))
                 });
                 // Our own rewrite triggers one more pass, which finds nothing to do.
                 if ours {

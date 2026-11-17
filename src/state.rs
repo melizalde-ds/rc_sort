@@ -6,9 +6,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The two files the service keeps at their defaults.
-pub const WATCHED: [&str; 2] = [".bashrc", ".bash_profile"];
-
 /// Where everything lives. Tests point `home` and `skel` at temp dirs.
 #[derive(Debug, Clone)]
 pub struct Paths {

@@ -40,7 +40,7 @@ const KNOWN_TOOLS: [&str; 13] = [
 ];
 
 /// Sorts a block by the spec's rules, first match wins. `None` means unsure.
-pub fn classify(b: &Block) -> Option<Category> {
+pub fn classify_bash(b: &Block) -> Option<Category> {
     if !b.balanced || leaves_file(b) {
         return None;
     }
@@ -136,14 +136,15 @@ fn sources_file(t: &str) -> bool {
 mod tests {
     use super::*;
     use crate::blocks::split_blocks;
+    use crate::shell::Shell;
     use Category::*;
 
     /// Classifies `text` as one block (every line added).
     fn class(text: &str) -> Option<Category> {
         let added: Vec<usize> = (0..text.lines().count()).collect();
-        let blocks = split_blocks(text, &added);
+        let blocks = split_blocks(Shell::Bash, text, &added);
         assert_eq!(blocks.len(), 1, "sample must be one block: {text:?}");
-        classify(&blocks[0])
+        Shell::Bash.classify(&blocks[0])
     }
 
     #[test]

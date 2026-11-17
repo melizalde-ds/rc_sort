@@ -7,5 +7,6 @@ pub mod prompt;
 pub mod watch;
 pub mod tidy;
 pub mod install;
+pub mod shell;
 #[cfg(feature = "tui")]
 pub mod tidy_tui;

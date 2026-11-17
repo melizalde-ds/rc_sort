@@ -1,7 +1,8 @@
 use crate::blocks::{split_blocks, Block};
-use crate::classify::{classify, leaves_file, tools_named, Category};
+use crate::classify::{leaves_file, tools_named, Category};
 use crate::diff::added_lines;
-use crate::state::{atomic_write, backup, hash, lock, normalize, read_opt, Paths, Pending, State, WATCHED};
+use crate::state::{atomic_write, backup, hash, lock, normalize, read_opt, Paths, Pending, State};
+use crate::shell::Shell;
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::fs;
@@ -13,8 +14,8 @@ pub const HOOK: &str = "zz-rc-sort.sh";
 pub fn run_once(p: &Paths) -> Result<()> {
     let _lock = lock(p)?;
     let mut state = State::load(p)?;
-    for file in WATCHED {
-        let Some((current, blocks)) = scan(p, file)? else { continue };
+    for (shell, &file) in Shell::ALL.iter().flat_map(|&s| s.watched().iter().map(move |f| (s, f))) {
+        let Some((current, blocks)) = scan(p, shell, file)? else { continue };
         // Blocks the user edited or removed by hand are no longer worth asking about.
         let live: HashSet<u64> = blocks.iter().map(|b| hash(&b.text)).collect();
         state.pending.retain(|x| x.file != file || live.contains(&x.hash));
@@ -24,7 +25,7 @@ pub fn run_once(p: &Paths) -> Result<()> {
             if state.kept.contains(&h) || state.pending.iter().any(|x| x.hash == h) {
                 continue;
             }
-            let Some(cat) = classify(b) else {
+            let Some(cat) = shell.classify(b) else {
                 state.pending.push(pending(file, b, String::new()));
                 continue;
             };
@@ -39,7 +40,7 @@ pub fn run_once(p: &Paths) -> Result<()> {
             if done.is_empty() {
                 backup(p, file, &current)?;
             }
-            state.messages.push(place(p, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
+            state.messages.push(place(p, shell, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
             done.push(b);
         }
         if !done.is_empty() {
@@ -53,12 +54,13 @@ pub fn run_once(p: &Paths) -> Result<()> {
 /// the user decided). Ok(false) if the block is no longer there, or is half of an if/loop
 /// (moving it would break both files). Caller holds the lock.
 pub fn move_block(p: &Paths, state: &mut State, file: &str, h: u64, cat: Category) -> Result<bool> {
-    let Some((current, blocks)) = scan(p, file)? else { return Ok(false) };
+    let Some(shell) = Shell::of(file) else { return Ok(false) };
+    let Some((current, blocks)) = scan(p, shell, file)? else { return Ok(false) };
     let Some(b) = blocks.iter().find(|b| b.balanced && !leaves_file(b) && hash(&b.text) == h) else {
         return Ok(false);
     };
     backup(p, file, &current)?;
-    state.messages.push(place(p, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
+    state.messages.push(place(p, shell, &format!("~/{file}"), &block_name(b), &b.text, cat, None)?);
     rewrite(p, file, &current, &[b])?;
     Ok(true)
 }
@@ -85,14 +87,14 @@ pub fn block_name(b: &Block) -> String {
 }
 
 /// The watched file's text, its added lines and blocks; None if it or its default is missing.
-fn scan(p: &Paths, file: &str) -> Result<Option<(String, Vec<Block>)>> {
+fn scan(p: &Paths, shell: Shell, file: &str) -> Result<Option<(String, Vec<Block>)>> {
     let Some(current) = read_opt(&p.home.join(file))? else { return Ok(None) };
     let Some(default) = read_opt(&p.skel.join(file))? else {
         eprintln!("rc-sort: no default {}, skipping ~/{file}", p.skel.join(file).display());
         return Ok(None);
     };
     let added = added_lines(&default, &current);
-    let blocks = split_blocks(&current, &added);
+    let blocks = split_blocks(shell, &current, &added);
     Ok(Some((current, blocks)))
 }
 
@@ -100,6 +102,7 @@ fn scan(p: &Paths, file: &str) -> Result<Option<(String, Vec<Block>)>> {
 /// has it. `from` is the source as shown to the user. Returns the message.
 pub(crate) fn place(
     p: &Paths,
+    shell: Shell,
     from: &str,
     name: &str,
     text: &str,
@@ -109,7 +112,7 @@ pub(crate) fn place(
     if let Some(other) = dup_in(&rc_files(p)?, text, skip) {
         return Ok(format!("rc-sort: removed duplicate {name} block from {from} (already in {other})"));
     }
-    let path = p.rc_dir().join(cat.file_name());
+    let path = shell.target(p, cat);
     let mut target = read_opt(&path)?.unwrap_or_default();
     if !target.is_empty() {
         if !target.ends_with('\n') {
