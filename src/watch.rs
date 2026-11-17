@@ -19,15 +19,14 @@ pub fn run_watch(p: &Paths) -> Result<()> {
     }
     let (tx, rx) = mpsc::channel();
     let mut debouncer = new_debouncer(Duration::from_secs(1), tx).context("starting file watcher")?;
-    let mut watched: Vec<_> = Shell::ALL.iter().flat_map(|s| s.watched()).map(|w| p.home.join(w)).collect();
-    let real: Vec<_> = watched.iter().filter_map(|w| std::fs::canonicalize(w).ok()).collect();
-    watched.extend(real);
+    let mut watched = watched_paths(p);
     watch_dirs(&mut debouncer, &watched)?;
     // Opening a file is an event too, and every pass reads the watched files, so only a
     // changed file starts a pass. Taken before the pass: our own rewrite starts one more.
     let mut seen = snapshot(&watched);
     pass(p);
     for batch in rx {
+        watched = watched_paths(p);
         if let Err(e) = watch_dirs(&mut debouncer, &watched) {
             eprintln!("rc-sort: {e:#}");
         }
@@ -42,6 +41,15 @@ pub fn run_watch(p: &Paths) -> Result<()> {
         pass(p);
     }
     anyhow::bail!("file watcher stopped")
+}
+
+/// The watched files and, for symlinks, the files they point to. Resolved on every batch,
+/// so a file a dotfiles tool turns into a link later is followed too.
+fn watched_paths(p: &Paths) -> Vec<PathBuf> {
+    let mut watched: Vec<_> = Shell::ALL.iter().flat_map(|s| s.watched()).map(|w| p.home.join(w)).collect();
+    let real: Vec<_> = watched.iter().filter_map(|w| std::fs::canonicalize(w).ok()).collect();
+    watched.extend(real);
+    watched
 }
 
 /// Watches the nearest existing folder of each file: a missing `~/.config/fish` is watched

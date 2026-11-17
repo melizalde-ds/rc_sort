@@ -299,6 +299,30 @@ fn export_an_earlier_block_left_in_config_also_sets_is_asked() {
 }
 
 #[test]
+fn watch_sorts_a_config_turned_into_a_symlink_after_it_started() {
+    // Arrange
+    let p = setup("watch-late-link");
+    let dotfiles = p.home.join("dotfiles");
+    fs::create_dir_all(&dotfiles).unwrap();
+    let p2 = p.clone();
+    std::thread::spawn(move || rc_sort::watch::run_watch(&p2));
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    fs::rename(p.home.join(CONFIG), dotfiles.join("config.fish")).unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("config.fish"), p.home.join(CONFIG)).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+
+    // Act
+    append(&p, "set -gx EDITOR nvim\n");
+
+    // Assert
+    let sorted = (0..50).any(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        read(&p, "conf.d/exports.fish").is_some_and(|s| s.contains("EDITOR"))
+    });
+    assert!(sorted);
+}
+
+#[test]
 fn tidy_asks_about_a_move_past_a_file_that_sets_the_same_variable() {
     // Arrange
     let p = setup("tidy-order");
