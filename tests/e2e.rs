@@ -459,6 +459,22 @@ fn alias_a_later_bashrc_d_file_also_defines_is_asked() {
 }
 
 #[test]
+fn profile_export_a_block_left_in_bashrc_also_sets_is_asked() {
+    // Arrange
+    let p = setup("profile-after-bashrc");
+    append(&p, ".bashrc", "export EDITOR=vim\nssh-agent -s > /dev/null\n");
+    append(&p, ".bash_profile", "\nexport EDITOR=nvim\n");
+
+    // Act
+    run_once(&p).unwrap();
+
+    // Assert
+    let pending = State::load(&p).unwrap().pending;
+    let nvim = pending.iter().find(|x| x.text == "export EDITOR=nvim").map(|x| x.note.as_str());
+    assert_eq!(nvim, Some("an earlier line in ~/.bashrc also defines EDITOR"));
+}
+
+#[test]
 fn path_added_by_a_later_file_too_still_moves() {
     // Arrange
     let p = setup("later-path");

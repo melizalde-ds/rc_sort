@@ -80,8 +80,17 @@ pub fn run_once(p: &Paths) -> Result<()> {
                 .filter(|(i, _)| !done.iter().any(|d| d.lines.contains(i)))
                 .map(|(_, l)| format!("{l}\n"))
                 .collect();
-            if let Some(x) = shell.shared_name(&b.text, &earlier) {
-                state.pending.push(pending(file, b, format!("an earlier line in ~/{file} also defines {x}")));
+            let mut earlier = vec![(file.to_string(), earlier)];
+            // ~/.bash_profile runs all of ~/.bashrc first.
+            if file == ".bash_profile"
+                && let Some(bashrc) = read_opt(&p.home.join(".bashrc"))?
+            {
+                earlier.insert(0, (".bashrc".to_string(), bashrc));
+            }
+            if let Some(note) = earlier.iter().find_map(|(f, t)| {
+                shell.shared_name(&b.text, t).map(|x| format!("an earlier line in ~/{f} also defines {x}"))
+            }) {
+                state.pending.push(pending(file, b, note));
                 continue;
             }
             if done.is_empty() {
