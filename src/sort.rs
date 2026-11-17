@@ -159,6 +159,8 @@ fn rewrite(p: &Paths, file: &str, current: &str, blocks: &[&Block]) -> Result<()
 
 /// Replaces `path` with `text`, then adds back what was appended to the old file past
 /// `old`'s read position: an installer appending during the rename writes to the old file.
+/// shortcut: an installer that renames its own new file over ours in that same instant
+/// still loses its change; fixing that needs a lock installers don't take.
 fn replace_keeping_appends(path: &Path, old: &mut File, text: &str) -> Result<()> {
     atomic_write(path, text)?;
     let mut late = Vec::new();
