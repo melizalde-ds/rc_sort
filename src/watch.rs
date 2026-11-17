@@ -22,14 +22,13 @@ pub fn run_watch(p: &Paths) -> Result<()> {
     let mut watched: Vec<_> = Shell::ALL.iter().flat_map(|s| s.watched()).map(|w| p.home.join(w)).collect();
     let real: Vec<_> = watched.iter().filter_map(|w| std::fs::canonicalize(w).ok()).collect();
     watched.extend(real);
-    let mut watching = Vec::new();
-    watch_new_dirs(&mut debouncer, &watched, &mut watching)?;
+    watch_dirs(&mut debouncer, &watched)?;
     // Opening a file is an event too, and every pass reads the watched files, so only a
     // changed file starts a pass. Taken before the pass: our own rewrite starts one more.
     let mut seen = snapshot(&watched);
     pass(p);
     for batch in rx {
-        if let Err(e) = watch_new_dirs(&mut debouncer, &watched, &mut watching) {
+        if let Err(e) = watch_dirs(&mut debouncer, &watched) {
             eprintln!("rc-sort: {e:#}");
         }
         let now = snapshot(&watched);
@@ -46,22 +45,15 @@ pub fn run_watch(p: &Paths) -> Result<()> {
 }
 
 /// Watches the nearest existing folder of each file: a missing `~/.config/fish` is watched
-/// for from `~/.config`, and watched itself once it shows up.
-fn watch_new_dirs(
-    debouncer: &mut Debouncer<RecommendedWatcher>,
-    files: &[PathBuf],
-    watching: &mut Vec<PathBuf>,
-) -> Result<()> {
+/// for from `~/.config`. Called on every batch, so a folder deleted and made again (a
+/// dotfiles restore) is watched again too.
+fn watch_dirs(debouncer: &mut Debouncer<RecommendedWatcher>, files: &[PathBuf]) -> Result<()> {
     for file in files {
         let Some(dir) = file.ancestors().skip(1).find(|d| d.is_dir()) else { continue };
-        if watching.iter().any(|w| w == dir) {
-            continue;
-        }
         debouncer
             .watcher()
             .watch(dir, RecursiveMode::NonRecursive)
             .with_context(|| format!("watching {}", dir.display()))?;
-        watching.push(dir.to_path_buf());
     }
     Ok(())
 }
