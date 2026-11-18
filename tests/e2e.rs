@@ -392,6 +392,7 @@ fn second_terminal_does_not_keep_a_block_another_terminal_moved() {
 }
 
 #[test]
+#[cfg_attr(not(has_bash), ignore = "needs bash")]
 fn half_typed_alias_is_asked() {
     // Arrange
     let p = setup("syntax");
@@ -491,6 +492,7 @@ fn path_added_by_a_later_file_too_still_moves() {
 }
 
 #[test]
+#[cfg_attr(not(has_bash), ignore = "needs bash")]
 fn half_typed_alias_stays_when_answered() {
     // Arrange
     let p = setup("syntax-answer");

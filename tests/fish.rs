@@ -390,6 +390,7 @@ fn tidy_will_not_send_a_non_function_to_functions() {
 }
 
 #[test]
+#[cfg_attr(not(has_fish), ignore = "needs fish")]
 fn half_typed_fish_alias_is_asked() {
     // Arrange
     let p = setup("syntax");

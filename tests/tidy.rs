@@ -60,6 +60,7 @@ fn real_layout_lands_in_tools_in_order() {
 }
 
 #[test]
+#[cfg_attr(not(has_bash), ignore = "needs bash")]
 fn guarded_block_does_not_hide_later_lines() {
     let guarded = "[[ $- == *i* ]] || return\nexport PATH=\"$HOME/x:$PATH\"\nexport INTER=1\n";
     let p = setup("guardrun", &[("20-prompt.sh", guarded)]);
@@ -127,6 +128,7 @@ fn block_shared_by_two_unsorted_files_is_kept_once() {
 }
 
 #[test]
+#[cfg_attr(not(has_bash), ignore = "needs bash")]
 fn half_typed_alias_is_asked() {
     // Arrange
     let p = setup("syntax", &[("old.sh", "alias gs='git sta\n")]);
@@ -139,6 +141,7 @@ fn half_typed_alias_is_asked() {
 }
 
 #[test]
+#[cfg_attr(not(has_bash), ignore = "needs bash")]
 fn half_typed_alias_stays_when_answered() {
     // Arrange
     let p = setup("syntax-answer", &[("old.sh", "alias gs='git sta\n")]);
