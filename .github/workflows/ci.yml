@@ -1,7 +1,5 @@
 name: CI
 on: [push, pull_request]
-env:
-  RC_SORT_REQUIRE_SHELLS: "1"
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -13,4 +11,4 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo clippy --locked --all-targets --no-default-features -- -D warnings
-      - run: cargo test --locked
+      - run: cargo test --locked -- --include-ignored
