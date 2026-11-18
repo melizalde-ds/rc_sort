@@ -20,8 +20,11 @@ show up as not sorted; keep them (`k` in `tidy`), since the manager rewrites the
 
 ## Install
 
+Linux only: needs a systemd user session. `rc-sort install` expects the binary at
+`~/.cargo/bin/rc-sort`, so it won't work with a custom `CARGO_HOME` or `--root`.
+
 ```bash
-cargo install --locked --path .
+cargo install --locked rc-sort
 rc-sort tidy      # optional: sort what's already in ~/.bashrc.d first
 rc-sort install   # writes the hook + systemd unit, starts the service
 ```

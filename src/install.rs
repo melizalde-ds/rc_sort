@@ -54,7 +54,7 @@ pub fn run_install(p: &Paths, out: &mut impl Write) -> Result<()> {
     if bin.canonicalize().ok().is_none_or(|b| Some(b) != me) {
         bail!(
             "run this from {} (the service and hook use that copy).\n  \
-             From the repo: cargo install --locked --path . && rc-sort install",
+             cargo install --locked rc-sort && rc-sort install",
             bin.display()
         );
     }

@@ -2,6 +2,14 @@
 name = "rc-sort"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.89"
+description = "Keeps ~/.bashrc and fish config at distro defaults by sorting added lines into ~/.bashrc.d and conf.d"
+license = "MIT"
+repository = "https://github.com/melizalde-ds/rc_sort"
+readme = "README.md"
+keywords = ["bash", "fish", "dotfiles", "shell", "systemd"]
+categories = ["command-line-utilities"]
+exclude = ["rustfmt.toml", ".gitignore"]
 
 [dependencies]
 anyhow = "=1.0.104"

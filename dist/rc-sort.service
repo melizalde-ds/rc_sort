@@ -1,5 +1,5 @@
 [Unit]
-Description=Keep ~/.bashrc and ~/.bash_profile sorted into ~/.bashrc.d
+Description=Keep bash and fish rc files sorted (rc-sort watch)
 
 [Service]
 ExecStart=%h/.cargo/bin/rc-sort watch
