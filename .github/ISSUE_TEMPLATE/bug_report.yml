@@ -1,0 +1,22 @@
+name: Bug report
+description: rc-sort moved, broke or missed something
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes: { label: rc-sort version, placeholder: "output of rc-sort --version" }
+    validations: { required: true }
+  - type: input
+    id: system
+    attributes: { label: Distro and shell, placeholder: "Fedora 43, bash 5.2" }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: What you expected and what rc-sort did instead }
+    validations: { required: true }
+  - type: textarea
+    id: block
+    attributes: { label: The block involved, description: The lines that were added or moved. Remove anything private., render: bash }
+  - type: textarea
+    id: logs
+    attributes: { label: Logs, description: "journalctl --user -u rc-sort -n 50", render: text }

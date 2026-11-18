@@ -1,3 +1,5 @@
+//! Library behind the rc-sort CLI. Not a stable API; use the binary.
+
 pub mod blocks;
 pub mod classify;
 pub mod diff;
