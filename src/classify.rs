@@ -10,8 +10,7 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Category; 4] =
-        [Category::Aliases, Category::Exports, Category::Functions, Category::Tools];
+    pub const ALL: [Category; 4] = [Category::Aliases, Category::Exports, Category::Functions, Category::Tools];
 
     pub fn file_name(self) -> &'static str {
         match self {
@@ -39,8 +38,7 @@ impl Category {
 }
 
 const KNOWN_TOOLS: [&str; 13] = [
-    "cargo", "rustup", "fnm", "nvm", "bun", "pnpm", "deno", "pyenv", "conda", "sdkman", "zoxide",
-    "starship", "direnv",
+    "cargo", "rustup", "fnm", "nvm", "bun", "pnpm", "deno", "pyenv", "conda", "sdkman", "zoxide", "starship", "direnv",
 ];
 
 /// Sorts a block by the spec's rules, first match wins. `None` means unsure.
@@ -138,7 +136,8 @@ fn exports_or_tools(code: &[&str]) -> Category {
 
 fn uses_a_variable_besides_home(t: &str) -> bool {
     t.split('$').skip(1).any(|rest| {
-        let name: String = rest.trim_start_matches('{').chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let name: String =
+            rest.trim_start_matches('{').chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
         !name.is_empty() && name != "HOME"
     })
 }
@@ -179,9 +178,10 @@ pub fn tools_named(text: &str) -> Vec<&'static str> {
     let mut found = Vec::new();
     for word in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
         if let Some(&tool) = KNOWN_TOOLS.iter().find(|&&k| k == word)
-            && !found.contains(&tool) {
-                found.push(tool);
-            }
+            && !found.contains(&tool)
+        {
+            found.push(tool);
+        }
     }
     found
 }
@@ -191,21 +191,15 @@ fn defines_function(t: &str) -> bool {
     if t.starts_with("function ") {
         return true;
     }
-    let name_len = t
-        .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '-')))
-        .unwrap_or(t.len());
+    let name_len = t.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '-'))).unwrap_or(t.len());
     let starts_ok = t.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_');
     starts_ok && t[name_len..].trim_start().starts_with("()")
 }
 
 /// Assigns `PATH` itself (not `MANPATH`, not a bare `export PATH`).
 fn sets_path(t: &str) -> bool {
-    t.match_indices("PATH=").any(|(i, _)| {
-        t[..i]
-            .chars()
-            .last()
-            .is_none_or(|c| c.is_whitespace() || matches!(c, ';' | ')' | '('))
-    })
+    t.match_indices("PATH=")
+        .any(|(i, _)| t[..i].chars().last().is_none_or(|c| c.is_whitespace() || matches!(c, ';' | ')' | '(')))
 }
 
 /// Runs a command (`$(…)` or backticks), e.g. `eval "$(fnm env)"`. Such blocks go to
@@ -242,7 +236,10 @@ mod tests {
 
     #[test]
     fn bun_is_tools() {
-        assert_eq!(class("# bun\nexport BUN_INSTALL=\"$HOME/.bun\"\nexport PATH=\"$BUN_INSTALL/bin:$PATH\""), Some(Tools));
+        assert_eq!(
+            class("# bun\nexport BUN_INSTALL=\"$HOME/.bun\"\nexport PATH=\"$BUN_INSTALL/bin:$PATH\""),
+            Some(Tools)
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@
 
 use crate::classify::Category;
 use crate::state::Paths;
-use crate::tidy::{apply, plan, reload_hint, Act, Item, Plan};
+use crate::tidy::{Act, Item, Plan, apply, plan, reload_hint};
 use anyhow::Result;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -31,8 +31,8 @@ const BAR: usize = 8;
 const WIDE: u16 = 90;
 /// First words that get bold in the preview.
 const SHELL_WORDS: [&str; 18] = [
-    "export", "alias", "function", "eval", "source", ".", "if", "then", "elif", "else", "fi", "for", "while",
-    "do", "done", "case", "esac", "unset",
+    "export", "alias", "function", "eval", "source", ".", "if", "then", "elif", "else", "fi", "for", "while", "do",
+    "done", "case", "esac", "unset",
 ];
 
 /// The 16 named colors, so the terminal's theme picks the shades. Every color comes with
@@ -159,13 +159,12 @@ pub(crate) const ASCII: Glyphs = Glyphs {
 
 /// The first of LC_ALL / LC_CTYPE / LANG that is set decides; none set means ASCII.
 fn utf8_locale() -> bool {
-    ["LC_ALL", "LC_CTYPE", "LANG"]
-        .iter()
-        .find_map(|v| std::env::var(v).ok().filter(|s| !s.is_empty()))
-        .is_some_and(|v| {
+    ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|v| std::env::var(v).ok().filter(|s| !s.is_empty())).is_some_and(
+        |v| {
             let v = v.to_ascii_lowercase();
             v.contains("utf-8") || v.contains("utf8")
-        })
+        },
+    )
 }
 
 /// The `?` key list, with this terminal's symbols.
@@ -196,11 +195,7 @@ pub fn run(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> Result<(
     }
     out.flush()?;
     let color = std::env::var_os("NO_COLOR").is_none();
-    let mut app = App {
-        g: if utf8_locale() { UNICODE } else { ASCII },
-        color,
-        ..App::default()
-    };
+    let mut app = App { g: if utf8_locale() { UNICODE } else { ASCII }, color, ..App::default() };
     let (_, rows) = terminal::size()?;
     let viewport = Viewport::Inline(height(&plan, rows));
     let mut term = ratatui::init_with_options(TerminalOptions { viewport });
@@ -504,7 +499,8 @@ fn heading(plan: &Plan, si: usize, width: usize, g: &Glyphs, t: &Theme) -> Line<
     let name = file_name(&src.shown).to_string();
     let used = name.chars().count() + 2 + outcome.iter().map(|s| s.content.chars().count()).sum::<usize>();
     let rule = g.hline.repeat(width.saturating_sub(used).max(1));
-    let mut spans = vec![Span::styled(name, Style::new().bold()), Span::raw(" "), Span::styled(rule, t.muted()), Span::raw(" ")];
+    let mut spans =
+        vec![Span::styled(name, Style::new().bold()), Span::raw(" "), Span::styled(rule, t.muted()), Span::raw(" ")];
     spans.extend(outcome);
     Line::from(spans)
 }
@@ -533,7 +529,6 @@ fn shell_line(prefix: &str, line: &str, base: Style) -> Line<'static> {
 fn keycap(k: &str, t: &Theme) -> Span<'static> {
     Span::styled(k.to_string(), t.accent().bold())
 }
-
 
 /// Rows `lines` take once wrapped at `width` (one at least per line).
 fn wrapped_height(lines: &[Line], width: u16) -> u16 {
@@ -633,7 +628,8 @@ pub(crate) fn draw(f: &mut Frame, app: &App, plan: &Plan) {
         if let (Some(b), Some((file, existing))) = (bottom, &item.clash) {
             let label = format!(" already in {file} {d} compare ");
             let fill = (b.width as usize).saturating_sub(label.chars().count() + 2);
-            let mut lines = vec![Line::styled(format!("{}{}{}", g.hline.repeat(2), label, g.hline.repeat(fill)), t.muted())];
+            let mut lines =
+                vec![Line::styled(format!("{}{}{}", g.hline.repeat(2), label, g.hline.repeat(fill)), t.muted())];
             lines.extend(existing.lines().map(|l| shell_line("  ", l, Style::new())));
             f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), b);
         }
@@ -740,10 +736,8 @@ fn preview(plan: &Plan, sel: usize, g: &Glyphs, t: &Theme) -> (Line<'static>, Ve
             ("later".to_string(), format!("stays in {src} for now"))
         }
     };
-    let heading = Line::from(vec![
-        Span::styled(what, Style::new().bold()),
-        Span::styled(format!(" {d} {rest}"), t.muted()),
-    ]);
+    let heading =
+        Line::from(vec![Span::styled(what, Style::new().bold()), Span::styled(format!(" {d} {rest}"), t.muted())]);
     (heading, lines)
 }
 
@@ -830,12 +824,11 @@ fn paint(line: &str, g: &Glyphs, color: bool) -> String {
     line.to_string()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
     use std::fs;
 
     const FILE: &str = "alias g=git\n\nssh-agent -s > /dev/null\n";
@@ -992,10 +985,24 @@ mod tests {
         let plan = plan(&p, None, &mut Vec::new()).unwrap();
         let mut app = App::default();
         let s = screen(&app, &plan, 110, 10);
-        for want in ["◆ rc-sort tidy", "▰▰▰▰▱▱▱▱ 1/2 decided", "1 move · 0 keep · 0 remove", "30-x.sh ─",
-                     "─ keeps 1 block", "▌ ✓  alias g=git", "● aliases", "?  ssh-agent", "◐ later", "aliases.sh · new file",
-                     "+ alias g=git", "t tools  e exports  a aliases  f functions  k keep  l later  r reset",
-                     "tab next unsure · ↑↓ select · y apply", "╭", "┬", "┴"] {
+        for want in [
+            "◆ rc-sort tidy",
+            "▰▰▰▰▱▱▱▱ 1/2 decided",
+            "1 move · 0 keep · 0 remove",
+            "30-x.sh ─",
+            "─ keeps 1 block",
+            "▌ ✓  alias g=git",
+            "● aliases",
+            "?  ssh-agent",
+            "◐ later",
+            "aliases.sh · new file",
+            "+ alias g=git",
+            "t tools  e exports  a aliases  f functions  k keep  l later  r reset",
+            "tab next unsure · ↑↓ select · y apply",
+            "╭",
+            "┬",
+            "┴",
+        ] {
             assert!(s.contains(want), "missing {want:?} in {s}");
         }
         assert!(!screen(&app, &plan, 70, 10).contains("new file"), "narrow: preview hidden");
@@ -1052,7 +1059,10 @@ mod tests {
         let buf = term.backend().buffer();
         assert!(buf.content().iter().all(|c| c.fg == Color::Reset && c.bg == Color::Reset));
         let s: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(s.contains("> v  alias g=git") && s.contains("* aliases") && s.contains("+---") && s.contains("##"), "{s}");
+        assert!(
+            s.contains("> v  alias g=git") && s.contains("* aliases") && s.contains("+---") && s.contains("##"),
+            "{s}"
+        );
         assert!(s.is_ascii(), "{s}");
     }
 

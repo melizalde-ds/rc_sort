@@ -4,8 +4,8 @@
 
 use crate::shell::Shell;
 use crate::sort::{FISH_HOOK, HOOK};
-use crate::state::{atomic_write, read_opt, Paths};
-use anyhow::{bail, Context, Result};
+use crate::state::{Paths, atomic_write, read_opt};
+use anyhow::{Context, Result, bail};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;

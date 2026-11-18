@@ -49,12 +49,9 @@ pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
     let name = real.file_name().context("path has no file name")?.to_string_lossy();
     let tmp = dir.join(format!("{name}.rc-sort.tmp"));
     let mut f = File::create(&tmp).with_context(|| format!("creating {}", tmp.display()))?;
-    f.write_all(content.as_bytes())
-        .and_then(|_| f.sync_all())
-        .with_context(|| format!("writing {}", tmp.display()))?;
+    f.write_all(content.as_bytes()).and_then(|_| f.sync_all()).with_context(|| format!("writing {}", tmp.display()))?;
     if let Ok(meta) = fs::metadata(&real) {
-        fs::set_permissions(&tmp, meta.permissions())
-            .with_context(|| format!("setting mode on {}", tmp.display()))?;
+        fs::set_permissions(&tmp, meta.permissions()).with_context(|| format!("setting mode on {}", tmp.display()))?;
     }
     fs::rename(&tmp, &real).with_context(|| format!("replacing {}", real.display()))
 }
@@ -121,9 +118,7 @@ impl State {
     pub fn load(p: &Paths) -> Result<State> {
         let dir = p.state_dir();
         let pending = match read_opt(&dir.join("pending.json"))? {
-            Some(s) if !s.trim().is_empty() => {
-                serde_json::from_str(&s).context("parsing pending.json")?
-            }
+            Some(s) if !s.trim().is_empty() => serde_json::from_str(&s).context("parsing pending.json")?,
             _ => Vec::new(),
         };
         let kept = load_kept(p)?;

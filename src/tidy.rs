@@ -2,13 +2,13 @@
 //! name) into aliases.sh / exports.sh / functions.sh / tools.sh. Interactive: shows the plan,
 //! asks about unsure blocks, and changes nothing until you answer `y`.
 
-use crate::blocks::{split_blocks, Block};
-use crate::classify::{leaves_file, tools_named, Category};
-use crate::prompt::{ask, unsure_header, Answer};
-use crate::sort::{block_name, dup_in, order_clash, place, rc_files, tool_clash, without, FISH_HOOK, HOOK};
-use crate::state::{atomic_write, backup, hash, load_kept, lock, Paths, State};
+use crate::blocks::{Block, split_blocks};
+use crate::classify::{Category, leaves_file, tools_named};
+use crate::prompt::{Answer, ask, unsure_header};
 use crate::shell::Shell;
-use anyhow::{bail, Context, Result};
+use crate::sort::{FISH_HOOK, HOOK, block_name, dup_in, order_clash, place, rc_files, tool_clash, without};
+use crate::state::{Paths, State, atomic_write, backup, hash, load_kept, lock};
+use anyhow::{Context, Result, bail};
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, Write};
@@ -34,9 +34,10 @@ pub fn scan_text(shell: Shell, text: &str) -> Scan {
     let guard = first_code.filter(|&i| is_interactive_guard(shell, lines[i]));
     let lines_in: Vec<usize> = (0..lines.len()).filter(|&i| Some(i) != guard).collect();
     let blocks = split_blocks(shell, text, &lines_in);
-    let problem = blocks.iter().find(|b| leaves_file(b)).map(|b| {
-        format!("it has a `return`/`exit` outside a function ({}); sort it by hand", block_name(b))
-    });
+    let problem = blocks
+        .iter()
+        .find(|b| leaves_file(b))
+        .map(|b| format!("it has a `return`/`exit` outside a function ({}); sort it by hand", block_name(b)));
     Scan { blocks, guard, problem }
 }
 
@@ -205,7 +206,9 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
     let per_shell = Shell::ALL.iter().map(|&shell| rc_files(p, shell)).collect::<Result<Vec<_>>>()?;
     let sorted_elsewhere: Vec<Vec<(String, String)>> = per_shell
         .iter()
-        .map(|files| files.iter().filter(|(n, _)| !srcs.iter().any(|s| s.rc_name.as_deref() == Some(n))).cloned().collect())
+        .map(|files| {
+            files.iter().filter(|(n, _)| !srcs.iter().any(|s| s.rc_name.as_deref() == Some(n))).cloned().collect()
+        })
         .collect();
     let mut items: Vec<Item> = Vec::new();
     for (si, s) in srcs.iter().enumerate() {
@@ -220,7 +223,8 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
             }
             let cat = s.shell.classify(b);
             let autoload = s.shell == Shell::Fish && cat == Some(Category::Functions);
-            let text = if s.scan.guard.is_some() && !autoload { s.shell.wrap_interactive(&b.text) } else { b.text.clone() };
+            let text =
+                if s.scan.guard.is_some() && !autoload { s.shell.wrap_interactive(&b.text) } else { b.text.clone() };
             let skip = s.rc_name.as_deref();
             let mut clash = None;
             let (mut act, mut note) = if let Some(other) = dup_in(&sorted_elsewhere[s.shell as usize], &text, skip) {
@@ -260,7 +264,6 @@ pub(crate) fn plan(p: &Paths, target: Option<PathBuf>, out: &mut impl Write) -> 
     Ok(Plan { srcs, items, files: per_shell.concat() })
 }
 
-
 /// The first block of `file` (one of `files`) that names `tool`.
 fn block_naming(shell: Shell, files: &[(String, String)], file: &str, tool: &str) -> Option<String> {
     let (_, text) = files.iter().find(|(n, _)| n == file)?;
@@ -288,7 +291,9 @@ pub fn run_tidy(p: &Paths, target: Option<PathBuf>, input: &mut impl BufRead, ou
                 plan.items[idx].act = Act::Move(cat);
                 writeln!(out, "  {}", plan.describe(&plan.items[idx]))?;
             }
-            Answer::Move(_) => writeln!(out, "  left in {shown}: it is half of an if/loop, not one function, or has a syntax error")?,
+            Answer::Move(_) => {
+                writeln!(out, "  left in {shown}: it is half of an if/loop, not one function, or has a syntax error")?
+            }
             Answer::Keep => plan.items[idx].act = Act::Keep,
             Answer::Later => {}
         }
@@ -331,11 +336,9 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
                     let msg = place(p, s.shell, &s.shown, &i.name, &i.text, *cat, s.rc_name.as_deref())?;
                     writeln!(out, "{msg}")?;
                 }
-                Act::Dup(other) => writeln!(
-                    out,
-                    "rc-sort: removed duplicate {} block from {} (already in {other})",
-                    i.name, s.shown
-                )?,
+                Act::Dup(other) => {
+                    writeln!(out, "rc-sort: removed duplicate {} block from {} (already in {other})", i.name, s.shown)?
+                }
                 Act::Keep | Act::Leave => {}
             }
         }
@@ -347,8 +350,7 @@ pub(crate) fn apply(p: &Paths, plan: &Plan, out: &mut impl Write) -> Result<Vec<
             atomic_write(&s.path, &rest)?;
         }
     }
-    let kept: HashSet<u64> =
-        plan.items.iter().filter(|i| i.act == Act::Keep).map(|i| hash(&i.block.text)).collect();
+    let kept: HashSet<u64> = plan.items.iter().filter(|i| i.act == Act::Keep).map(|i| hash(&i.block.text)).collect();
     if !kept.is_empty() {
         save_kept(p, &kept)?;
         writeln!(out, "rc-sort: kept {} block(s) in place; tidy won't ask about them again", kept.len())?;
@@ -488,6 +490,9 @@ mod tests {
     #[test]
     fn wrap_indents_and_keeps_heredocs() {
         assert_eq!(Shell::Bash.wrap_interactive("a\n\nb"), "if [[ $- == *i* ]]; then\n    a\n\n    b\nfi");
-        assert_eq!(Shell::Bash.wrap_interactive("cat <<EOF\nx\nEOF"), "if [[ $- == *i* ]]; then\ncat <<EOF\nx\nEOF\nfi");
+        assert_eq!(
+            Shell::Bash.wrap_interactive("cat <<EOF\nx\nEOF"),
+            "if [[ $- == *i* ]]; then\ncat <<EOF\nx\nEOF\nfi"
+        );
     }
 }

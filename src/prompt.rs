@@ -1,6 +1,6 @@
 use crate::classify::Category;
 use crate::sort::move_block;
-use crate::state::{lock, Paths, State};
+use crate::state::{Paths, State, lock};
 use anyhow::Result;
 use std::fs;
 use std::io::{BufRead, Write};

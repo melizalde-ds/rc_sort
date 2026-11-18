@@ -96,10 +96,14 @@ fn message_names_the_fish_target() {
 
     // Assert
     let messages = State::load(&p).unwrap().messages;
-    assert_eq!(messages, vec!["rc-sort: moved abbr -a gs git status block from ~/.config/fish/config.fish to conf.d/aliases.fish"]);
+    assert_eq!(
+        messages,
+        vec!["rc-sort: moved abbr -a gs git status block from ~/.config/fish/config.fish to conf.d/aliases.fish"]
+    );
 }
 
-const FISH_TEMPLATE: &str = "if status is-interactive\n    # Commands to run in interactive sessions can go here\nend\n";
+const FISH_TEMPLATE: &str =
+    "if status is-interactive\n    # Commands to run in interactive sessions can go here\nend\n";
 
 #[test]
 fn without_a_skel_default_the_fish_template_is_the_baseline() {
@@ -129,7 +133,10 @@ fn line_inside_the_interactive_block_moves_wrapped() {
 
     // Assert
     assert_eq!(read(&p, "config.fish").unwrap(), FISH_TEMPLATE);
-    assert_eq!(read(&p, "conf.d/tools.fish").unwrap(), "if status is-interactive\n    starship init fish | source\nend\n");
+    assert_eq!(
+        read(&p, "conf.d/tools.fish").unwrap(),
+        "if status is-interactive\n    starship init fish | source\nend\n"
+    );
 }
 
 #[test]
@@ -333,7 +340,9 @@ fn tidy_asks_about_a_move_past_a_file_that_sets_the_same_variable() {
 
     // Assert
     assert!(
-        out.contains("unsure where this block from ~/.config/fish/conf.d/a.fish goes (conf.d/b.fish also defines EDITOR):"),
+        out.contains(
+            "unsure where this block from ~/.config/fish/conf.d/a.fish goes (conf.d/b.fish also defines EDITOR):"
+        ),
         "{out}"
     );
 }
@@ -361,7 +370,10 @@ fn tidy_wraps_blocks_from_a_fish_guarded_file() {
     tidy(&p, "y\n");
 
     // Assert
-    assert_eq!(read(&p, "conf.d/tools.fish").unwrap(), "if status is-interactive\n    zoxide init fish | source\nend\n");
+    assert_eq!(
+        read(&p, "conf.d/tools.fish").unwrap(),
+        "if status is-interactive\n    zoxide init fish | source\nend\n"
+    );
 }
 
 #[test]

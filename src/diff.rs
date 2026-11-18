@@ -35,9 +35,7 @@ pub fn added_lines(default: &str, current: &str) -> Vec<usize> {
             DiffOp::Replace { old_index, old_len, new_index, new_len } => {
                 let olds = &old[old_index..old_index + old_len];
                 for (i, line) in new.iter().enumerate().skip(new_index).take(new_len) {
-                    let edited = olds
-                        .iter()
-                        .any(|o| TextDiff::from_chars(*o, *line).ratio() >= CHANGED_RATIO);
+                    let edited = olds.iter().any(|o| TextDiff::from_chars(*o, *line).ratio() >= CHANGED_RATIO);
                     if !edited && !moved(line) {
                         added.push(i);
                     }

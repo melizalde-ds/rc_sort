@@ -1,5 +1,5 @@
 use rc_sort::sort::run_once;
-use rc_sort::state::{hash, Paths, State};
+use rc_sort::state::{Paths, State, hash};
 use std::fs;
 use std::path::PathBuf;
 
@@ -131,10 +131,8 @@ fn missing_watched_file_is_skipped() {
 #[test]
 fn edited_comment_lines_untouched() {
     let p = setup("comments");
-    let edited = skel(".bashrc").replace(
-        "# User specific aliases and functions",
-        "# User specific config: aliases, exports, functions, tools",
-    );
+    let edited = skel(".bashrc")
+        .replace("# User specific aliases and functions", "# User specific config: aliases, exports, functions, tools");
     fs::write(p.home.join(".bashrc"), &edited).unwrap();
     run_once(&p).unwrap();
     assert_eq!(read(&p, ".bashrc"), edited);
@@ -323,7 +321,8 @@ fn alias_naming_a_known_tool_still_moves() {
 fn line_inside_a_default_bash_block_is_asked() {
     // Arrange
     let p = setup("inside-if");
-    let edited = skel(".bashrc").replace("if [ -d ~/.bashrc.d ]; then\n", "if [ -d ~/.bashrc.d ]; then\n    alias g=git\n");
+    let edited =
+        skel(".bashrc").replace("if [ -d ~/.bashrc.d ]; then\n", "if [ -d ~/.bashrc.d ]; then\n    alias g=git\n");
     fs::write(p.home.join(".bashrc"), &edited).unwrap();
 
     // Act
@@ -346,7 +345,10 @@ fn command_in_bash_profile_is_asked() {
 
     // Assert
     assert_eq!(read(&p, ".bash_profile"), before);
-    assert_eq!(State::load(&p).unwrap().pending[0].note, "~/.bash_profile runs it once per login; ~/.bashrc.d runs it in every shell");
+    assert_eq!(
+        State::load(&p).unwrap().pending[0].note,
+        "~/.bash_profile runs it once per login; ~/.bashrc.d runs it in every shell"
+    );
 }
 
 struct OtherTerminalAnswersFirst<'a> {

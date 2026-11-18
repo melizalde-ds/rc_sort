@@ -49,12 +49,13 @@ fn split_run(shell: Shell, lines: &[&str], run: &[usize], blocks: &mut Vec<Block
         if marker_end.as_deref() == Some(t) {
             marker_end = None;
         } else if marker_end.is_none()
-            && let Some(name) = t.strip_prefix('#').map(str::trim) {
-                let end = format!("# {name} end");
-                if !name.is_empty() && run[k + 1..].iter().any(|&j| lines[j].trim() == end) {
-                    marker_end = Some(end);
-                }
+            && let Some(name) = t.strip_prefix('#').map(str::trim)
+        {
+            let end = format!("# {name} end");
+            if !name.is_empty() && run[k + 1..].iter().any(|&j| lines[j].trim() == end) {
+                marker_end = Some(end);
             }
+        }
         depth += shell.depth_delta(t);
         cur.push(idx);
     }

@@ -1,6 +1,6 @@
 use rc_sort::prompt::run_prompt;
 use rc_sort::sort::run_once;
-use rc_sort::state::{hash, Paths, State};
+use rc_sort::state::{Paths, State, hash};
 use rc_sort::tidy::{run_tidy, unsorted};
 use std::fs;
 use std::io::Cursor;
@@ -227,7 +227,10 @@ fn installer_block_already_in_numbered_file_is_removed() {
     b.push_str(NODE);
     fs::write(p.home.join(".bashrc"), b).unwrap();
     run_once(&p).unwrap();
-    assert_eq!(fs::read_to_string(p.home.join(".bashrc")).unwrap(), fs::read_to_string(skel_dir().join(".bashrc")).unwrap());
+    assert_eq!(
+        fs::read_to_string(p.home.join(".bashrc")).unwrap(),
+        fs::read_to_string(skel_dir().join(".bashrc")).unwrap()
+    );
     assert_eq!(rc(&p, "tools.sh"), None, "not copied again");
     let s = State::load(&p).unwrap();
     assert!(s.messages[0].contains("already in 10-node.sh"), "{:?}", s.messages);

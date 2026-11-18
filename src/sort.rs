@@ -1,8 +1,8 @@
-use crate::blocks::{split_blocks, Block};
-use crate::classify::{leaves_file, runs_a_command, tools_named, Category};
+use crate::blocks::{Block, split_blocks};
+use crate::classify::{Category, leaves_file, runs_a_command, tools_named};
 use crate::diff::added_lines;
-use crate::state::{atomic_write, backup, hash, lock, normalize, read_opt, Paths, Pending, State};
 use crate::shell::Shell;
+use crate::state::{Paths, Pending, State, atomic_write, backup, hash, lock, normalize, read_opt};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -53,7 +53,8 @@ pub fn run_once(p: &Paths) -> Result<()> {
             let text = placed_text(shell, enclosure, cat, &b.text);
             let files = rc_files(p, shell)?;
             let new = dup_in(&files, &text, None).is_none();
-            if cat == Category::Tools && new
+            if cat == Category::Tools
+                && new
                 && let Some((other, tool)) = tool_clash(shell, &files, &text, None)
             {
                 let note = format!("{other} already has a {tool} block");
@@ -287,10 +288,7 @@ fn list(dir: &std::path::Path, prefix: &str) -> Result<Vec<(String, String)>> {
 
 /// The first file (other than `skip`) that already holds `text` as whole lines.
 pub(crate) fn dup_in<'a>(files: &'a [(String, String)], text: &str, skip: Option<&str>) -> Option<&'a str> {
-    files
-        .iter()
-        .find(|(n, t)| Some(n.as_str()) != skip && contains_block(t, text))
-        .map(|(n, _)| n.as_str())
+    files.iter().find(|(n, t)| Some(n.as_str()) != skip && contains_block(t, text)).map(|(n, _)| n.as_str())
 }
 
 /// A known tool `text` sets up that tools.sh or a not-yet-sorted file (other than `skip`)
@@ -373,12 +371,8 @@ pub(crate) fn without(current: &str, blocks: &[&Block]) -> String {
             }
         }
     }
-    let mut out: String = lines
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !drop.contains(i))
-        .map(|(_, l)| format!("{l}\n"))
-        .collect();
+    let mut out: String =
+        lines.iter().enumerate().filter(|(i, _)| !drop.contains(i)).map(|(_, l)| format!("{l}\n")).collect();
     if !current.ends_with('\n') {
         out.pop();
     }

@@ -1,12 +1,13 @@
-use crate::blocks::{bash_depth, fish_depth, Block};
-use crate::classify::{bash_defined_names, classify_bash, classify_fish, fish_defined_names, function_name, Category};
-use crate::state::{read_opt, Paths};
+use crate::blocks::{Block, bash_depth, fish_depth};
+use crate::classify::{Category, bash_defined_names, classify_bash, classify_fish, fish_defined_names, function_name};
+use crate::state::{Paths, read_opt};
 use anyhow::Result;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-const FISH_TEMPLATE: &str = "if status is-interactive\n    # Commands to run in interactive sessions can go here\nend\n";
+const FISH_TEMPLATE: &str =
+    "if status is-interactive\n    # Commands to run in interactive sessions can go here\nend\n";
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Shell {

@@ -10,10 +10,7 @@ use rc_sort::watch::run_watch;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(
-    version,
-    about = "Keeps your shell rc files sorted into tools, exports, aliases and functions"
-)]
+#[command(version, about = "Keeps your shell rc files sorted into tools, exports, aliases and functions")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -49,10 +46,7 @@ fn main() -> Result<()> {
         home: PathBuf::from(home),
         skel: PathBuf::from("/etc/skel"),
         // shortcut: the usual system folders, not every $XDG_DATA_DIRS entry fish reads.
-        fish_vendor_conf: vec![
-            PathBuf::from("/etc/fish/conf.d"),
-            PathBuf::from("/usr/share/fish/vendor_conf.d"),
-        ],
+        fish_vendor_conf: vec![PathBuf::from("/etc/fish/conf.d"), PathBuf::from("/usr/share/fish/vendor_conf.d")],
     };
     match cli.command {
         Command::Watch => run_watch(&p),
@@ -65,21 +59,11 @@ fn main() -> Result<()> {
                 return rc_sort::tidy_tui::run(&p, target, &mut std::io::stdout());
             }
             let _ = plain;
-            run_tidy(
-                &p,
-                target,
-                &mut std::io::stdin().lock(),
-                &mut std::io::stdout(),
-            )
+            run_tidy(&p, target, &mut std::io::stdin().lock(), &mut std::io::stdout())
         }
         Command::Prompt => run_prompt(&p, &mut std::io::stdin().lock(), &mut std::io::stdout()),
         Command::Completions { shell } => {
-            clap_complete::generate(
-                shell,
-                &mut Cli::command(),
-                "rc-sort",
-                &mut std::io::stdout(),
-            );
+            clap_complete::generate(shell, &mut Cli::command(), "rc-sort", &mut std::io::stdout());
             Ok(())
         }
     }

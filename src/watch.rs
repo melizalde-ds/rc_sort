@@ -1,9 +1,9 @@
-use crate::sort::run_once;
 use crate::shell::Shell;
+use crate::sort::run_once;
 use crate::state::Paths;
 use anyhow::{Context, Result};
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{new_debouncer, Debouncer};
+use notify_debouncer_mini::{Debouncer, new_debouncer};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
@@ -67,10 +67,7 @@ fn watch_dirs(debouncer: &mut Debouncer<RecommendedWatcher>, files: &[PathBuf]) 
 }
 
 fn snapshot(files: &[PathBuf]) -> Vec<Option<(SystemTime, u64)>> {
-    files
-        .iter()
-        .map(|f| std::fs::metadata(f).ok().and_then(|m| Some((m.modified().ok()?, m.len()))))
-        .collect()
+    files.iter().map(|f| std::fs::metadata(f).ok().and_then(|m| Some((m.modified().ok()?, m.len())))).collect()
 }
 
 /// A failed pass is logged (journal) and the service keeps running.
