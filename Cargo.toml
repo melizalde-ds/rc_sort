@@ -9,7 +9,7 @@ repository = "https://github.com/melizalde-ds/rc_sort"
 readme = "README.md"
 keywords = ["bash", "fish", "dotfiles", "shell", "systemd"]
 categories = ["command-line-utilities"]
-exclude = ["rustfmt.toml", ".gitignore"]
+exclude = ["rustfmt.toml", ".gitignore", "docs/", ".github/"]
 
 [dependencies]
 anyhow = "=1.0.104"
@@ -25,3 +25,8 @@ clap_complete = "=4.6.12"
 default = ["tui"]
 # `rc-sort tidy` opens a full-screen picker in a terminal; without it, tidy is always plain.
 tui = ["dep:ratatui"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
